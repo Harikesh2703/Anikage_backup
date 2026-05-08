@@ -34,7 +34,7 @@ You should see:
 Open a **second terminal** and run:
 
 ```bash
-cd ~/Desktop/ani-cli/emerald-stream-main
+cd ~/Desktop/ani-cli/frontend/emerald-stream-main
 npm run dev
 ```
 

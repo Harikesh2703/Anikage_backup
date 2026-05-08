@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Play, Plus, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { Play, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { AnimeItem } from '@/lib/api';
 
 interface HeroSlideshowProps {
   slides: AnimeItem[];
+  onCardClick?: (anime: AnimeItem) => void;
 }
 
-export function HeroSlideshow({ slides }: HeroSlideshowProps) {
+export function HeroSlideshow({ slides, onCardClick }: HeroSlideshowProps) {
   const [index, setIndex] = useState<number>(0);
-  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
     if (slides.length === 0) return;
@@ -31,8 +30,7 @@ export function HeroSlideshow({ slides }: HeroSlideshowProps) {
   const bgImage = slide.banner || slide.coverImage;
 
   function handleWatch() {
-    const watchUrl = `http://localhost:3001/api/watch/${slide.id}/1`;
-    window.open(watchUrl, '_blank');
+    onCardClick?.(slide);
   }
 
   return (
@@ -82,10 +80,9 @@ export function HeroSlideshow({ slides }: HeroSlideshowProps) {
           <button
             type="button"
             onClick={handleWatch}
-            disabled={playing}
-            className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-semibold px-6 py-3 rounded-lg hover:bg-primary-glow transition-all shadow-[var(--shadow-glow)] hover:scale-[1.03] disabled:opacity-70"
+            className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-semibold px-6 py-3 rounded-lg hover:bg-primary-glow transition-all shadow-[var(--shadow-glow)] hover:scale-[1.03]"
           >
-            {playing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5 fill-current" />}
+            <Play className="w-5 h-5 fill-current" />
             Watch Now
           </button>
           <button

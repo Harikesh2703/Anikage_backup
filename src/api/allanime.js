@@ -246,14 +246,16 @@ class AllAnimeAPI {
       }
     }
 
-    for (const [name, sourceUrl] of Object.entries(providers)) {
-      if (sourceUrl) {
+    const providerEntries = Object.entries(providers).filter(([_, url]) => !!url);
+    
+    const results = await Promise.all(
+      providerEntries.map(async ([name, sourceUrl]) => {
         const decodedId = sourceUrl.startsWith('http') ? sourceUrl : helpers.decodeProviderId(sourceUrl);
-        const links = await this.getVideoLinks(decodedId, name);
-        allLinks.push(...links);
-      }
-    }
+        return this.getVideoLinks(decodedId, name);
+      })
+    );
 
+    results.forEach(links => allLinks.push(...links));
     return allLinks;
   }
 

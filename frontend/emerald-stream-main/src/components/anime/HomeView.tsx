@@ -6,7 +6,11 @@ import { HeroSlideshow } from '@/components/anime/HeroSlideshow';
 import { api } from '@/lib/api';
 import type { AnimeItem } from '@/lib/api';
 
-export function HomeView() {
+interface HomeViewProps {
+  onCardClick?: (anime: AnimeItem) => void;
+}
+
+export function HomeView({ onCardClick }: HomeViewProps) {
   const [hero, setHero] = useState<AnimeItem[]>([]);
   const [trending, setTrending] = useState<AnimeItem[]>([]);
   const [shonen, setShonen] = useState<AnimeItem[]>([]);
@@ -77,30 +81,30 @@ export function HomeView() {
 
   return (
     <div className="pb-20">
-      <HeroSlideshow slides={hero} />
+      <HeroSlideshow slides={hero} onCardClick={onCardClick} />
 
       <div className="-mt-12 relative z-10">
         <AnimeRow title="Trending Now" subtitle="What everyone is watching">
           {trending.map((item) => (
-            <AnimeCard key={item.id} anime={item} />
+            <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} />
           ))}
         </AnimeRow>
 
         <AnimeRow title="Shounen & Action" subtitle="The blades everyone is talking about">
           {shonen.map((item) => (
-            <AnimeCard key={item.id} anime={item} />
+            <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} />
           ))}
         </AnimeRow>
 
         <AnimeRow title="Slice of Life" subtitle="Slow afternoons, warm hearts">
           {sliceOfLife.map((item) => (
-            <AnimeCard key={item.id} anime={item} />
+            <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} />
           ))}
         </AnimeRow>
 
         <AnimeRow title="Fantasy & Supernatural" subtitle="Neon skies and ancient spirits">
           {sciFi.map((item) => (
-            <AnimeCard key={item.id} anime={item} />
+            <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} />
           ))}
         </AnimeRow>
       </div>

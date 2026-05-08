@@ -8,10 +8,11 @@ import { AnimeCard } from '@/components/anime/AnimeCard';
 interface NavbarProps {
   view: AppView;
   onNavigate: (view: AppView) => void;
+  onCardClick?: (anime: AnimeItem) => void;
   onSignOut?: () => void;
 }
 
-export function Navbar({ view, onNavigate }: NavbarProps) {
+export function Navbar({ view, onNavigate, onCardClick }: NavbarProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<AnimeItem[]>([]);
   const [searching, setSearching] = useState(false);
@@ -93,7 +94,16 @@ export function Navbar({ view, onNavigate }: NavbarProps) {
             <div className="absolute top-full mt-2 left-0 right-0 bg-card border border-border rounded-2xl shadow-[var(--shadow-card)] overflow-hidden z-50">
               <div className="p-3 flex flex-wrap gap-3 max-h-[420px] overflow-y-auto">
                 {results.map(anime => (
-                  <AnimeCard key={anime.id} anime={anime} className="!w-[130px]" />
+                  <AnimeCard 
+                    key={anime.id} 
+                    anime={anime} 
+                    className="!w-[130px]" 
+                    onCardClick={(a) => {
+                      onCardClick?.(a);
+                      setOpen(false);
+                      setQuery('');
+                    }}
+                  />
                 ))}
               </div>
             </div>

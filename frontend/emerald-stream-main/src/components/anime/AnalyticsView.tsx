@@ -39,7 +39,11 @@ function ChartTooltip({ active, payload }: ChartTooltipProps) {
   );
 }
 
-export function AnalyticsView() {
+interface AnalyticsViewProps {
+  onCardClick?: (anime: AnimeItem) => void;
+}
+
+export function AnalyticsView({ onCardClick }: AnalyticsViewProps) {
   const [genreStats, setGenreStats] = useState<GenreStat[]>([]);
   const [recommendations, setRecommendations] = useState<AnimeItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -166,7 +170,7 @@ export function AnalyticsView() {
         subtitle="Hand-picked from trending"
       >
         {recommendations.map((item) => (
-          <AnimeCard key={item.id} anime={item} />
+          <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} />
         ))}
       </AnimeRow>
     </div>

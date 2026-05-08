@@ -107,6 +107,45 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
   }
 });
 
+// Proxy endpoint to bypass CORS and Referer restrictions
+app.get('/api/proxy', async (req, res) => {
+  const targetUrl = req.query.url;
+  if (!targetUrl) return res.status(400).send('URL required');
+
+  try {
+    const api = getApi();
+    const https = require('https');
+    const http = require('http');
+    const { URL } = require('url');
+
+    const parsedUrl = new URL(targetUrl);
+    const protocol = parsedUrl.protocol === 'https:' ? https : http;
+
+    const options = {
+      headers: {
+        'User-Agent': api.userAgent,
+        'Referer': api.referer,
+      }
+    };
+
+    protocol.get(targetUrl, options, (proxyRes) => {
+      // Copy headers
+      if (proxyRes.headers['content-type']) res.setHeader('Content-Type', proxyRes.headers['content-type']);
+      if (proxyRes.headers['content-encoding']) res.setHeader('Content-Encoding', proxyRes.headers['content-encoding']);
+      if (proxyRes.headers['content-length']) res.setHeader('Content-Length', proxyRes.headers['content-length']);
+      
+      res.status(proxyRes.statusCode || 200);
+      proxyRes.pipe(res);
+    }).on('error', (err) => {
+      console.error('Proxy request error:', err.message);
+      res.status(500).send(err.message);
+    });
+  } catch (err) {
+    console.error('Proxy setup error:', err.message);
+    res.status(500).send(err.message);
+  }
+});
+
 // Redirect to best stream (used for direct browser opening)
 app.get('/api/watch/:showId/:episode', async (req, res) => {
   try {

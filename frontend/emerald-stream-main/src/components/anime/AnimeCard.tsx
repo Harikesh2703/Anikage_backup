@@ -1,21 +1,15 @@
-import { useState } from 'react';
-import { Play, Loader2 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { Play } from 'lucide-react';
 import type { AnimeItem } from '@/lib/api';
 
 interface AnimeCardProps {
   anime: AnimeItem;
   className?: string;
+  onCardClick?: (anime: AnimeItem) => void;
 }
 
-export function AnimeCard({ anime, className = '' }: AnimeCardProps) {
-  const [loading, setLoading] = useState(false);
-
+export function AnimeCard({ anime, className = '', onCardClick }: AnimeCardProps) {
   function handlePlay() {
-    // Open the backend watch link directly. 
-    // This is SYNCHRONOUS, so browsers won't block the pop-up!
-    const watchUrl = `http://localhost:3001/api/watch/${anime.id}/1`;
-    window.open(watchUrl, '_blank');
+    onCardClick?.(anime);
   }
 
   return (
@@ -39,16 +33,14 @@ export function AnimeCard({ anime, className = '' }: AnimeCardProps) {
         className="absolute inset-0 pointer-events-none"
         style={{ background: 'var(--gradient-card)' }}
       />
+
       {/* Hover play overlay */}
       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
         <div className="w-14 h-14 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-[var(--shadow-glow)]">
-          {loading ? (
-            <Loader2 className="w-6 h-6 animate-spin" />
-          ) : (
-            <Play className="w-6 h-6 fill-current" />
-          )}
+          <Play className="w-6 h-6 fill-current" />
         </div>
       </div>
+
       <div className="absolute bottom-0 left-0 right-0 p-3">
         <h3 className="text-sm font-semibold text-foreground truncate">{anime.title}</h3>
         <p className="text-[11px] text-muted-foreground truncate mt-0.5">
