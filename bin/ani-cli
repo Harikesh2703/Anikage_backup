@@ -1,0 +1,8 @@
+#!/bin/bash
+# ani-cli wrapper script for Node.js version
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Run the Node.js version
+exec node "$SCRIPT_DIR/ani-cli.js" "$@"

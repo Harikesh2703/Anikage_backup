@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+frontend/emerald-stream-main/node_modules/
+
+# Environment files (contain secrets)
+.env
+server/.env
+frontend/emerald-stream-main/.env
+
+# Build output
+dist/
+frontend/emerald-stream-main/dist/
+.wrangler/
+frontend/emerald-stream-main/.wrangler/
+
+# Database
+server/database.sqlite
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Lock files (keep package-lock.json but ignore bun)
+frontend/emerald-stream-main/bun.lockb

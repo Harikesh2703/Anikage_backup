@@ -1,0 +1,39 @@
+{
+  "name": "ani-cli",
+  "version": "4.10.4",
+  "description": "A Node.js CLI to browse and watch anime from the terminal",
+  "main": "src/index.js",
+  "bin": {
+    "ani-cli": "./bin/ani-cli.js"
+  },
+  "scripts": {
+    "start": "node bin/ani-cli.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "anime",
+    "cli",
+    "streaming",
+    "allmanga",
+    "video"
+  ],
+  "author": "ani-cli contributors",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "cli-progress": "^3.12.0",
+    "commander": "^11.1.0",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "inquirer": "^8.2.5",
+    "ora": "^5.4.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pystardust/ani-cli.git"
+  }
+}
