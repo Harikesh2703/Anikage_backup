@@ -1,11 +1,13 @@
-name: Build and Release Anikage
+nname: Build and Release Anikage
 
 on:
   push:
     tags:
-      - 'v*' # This triggers the build when you push a tag like v1.0.0
+      - 'v*'
+  workflow_dispatch: # <--- ADD THIS LINE (make sure it has 2 spaces in front)
 
 jobs:
+# ... the rest of the file stays the same
   release:
     runs-on: ${{ matrix.os }}
 
