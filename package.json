@@ -42,7 +42,7 @@
     "type": "git",
     "url": "https://github.com/pystardust/ani-cli.git"
   },
- "devDependencies": {
+  "devDependencies": {
     "electron": "^41.5.0",
     "electron-builder": "^26.8.1",
     "wait-on": "^9.0.5"
@@ -64,3 +64,4 @@
       "target": "dmg"
     }
   }
+}
