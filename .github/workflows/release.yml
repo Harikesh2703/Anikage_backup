@@ -30,10 +30,13 @@ jobs:
         run: npm install
 
       # This is the magic part that fixes the SQLite Linux-vs-Windows bug
-      - name: Rebuild Native Modules
-        run: npx electron-rebuild -f -w sqlite3
+      - name: Rebuild Native Modules (SQLite Fix)
+        # Using version 41.5.0 from your devDependencies
+        run: npx @electron/rebuild -f -w sqlite3 -v 41.5.0
 
-      - name: Build and Publish
+      - name: Build and Publish Electron App
         run: npm run dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This helps avoid certificate errors on Mac during the build process
+          CSC_IDENTITY_AUTO_DISCOVERY: false
