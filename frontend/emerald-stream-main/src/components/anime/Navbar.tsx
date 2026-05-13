@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, Home, BarChart3, Bell, X, Loader2 } from 'lucide-react';
+import { Search, Home, BarChart3, Bell, X, Loader2, Settings } from 'lucide-react';
 import type { AppView } from '@/components/anime/types';
 import { api } from '@/lib/api';
 import type { AnimeItem } from '@/lib/api';
@@ -10,9 +10,10 @@ interface NavbarProps {
   onNavigate: (view: AppView) => void;
   onCardClick?: (anime: AnimeItem) => void;
   onSignOut?: () => void;
+  hasNotifications?: boolean;
 }
 
-export function Navbar({ view, onNavigate, onCardClick }: NavbarProps) {
+export function Navbar({ view, onNavigate, onCardClick, hasNotifications }: NavbarProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<AnimeItem[]>([]);
   const [searching, setSearching] = useState(false);
@@ -117,8 +118,20 @@ export function Navbar({ view, onNavigate, onCardClick }: NavbarProps) {
           <NavIcon label="Analytics" active={view === 'analytics'} onClick={() => onNavigate('analytics')}>
             <BarChart3 className="w-5 h-5" />
           </NavIcon>
-          <NavIcon label="Notifications" active={false} onClick={() => undefined}>
-            <Bell className="w-5 h-5" />
+          <NavIcon 
+            label="Notifications" 
+            active={view === 'notifications'} 
+            onClick={() => onNavigate('notifications')}
+          >
+            <div className="relative">
+              <Bell className="w-5 h-5" />
+              {hasNotifications && (
+                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-red-500 rounded-full border border-background shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
+              )}
+            </div>
+          </NavIcon>
+          <NavIcon label="Settings" active={view === 'settings'} onClick={() => onNavigate('settings')}>
+            <Settings className="w-5 h-5" />
           </NavIcon>
         </nav>
       </div>

@@ -16,6 +16,7 @@ export function HomeView({ onCardClick }: HomeViewProps) {
   const [shonen, setShonen] = useState<AnimeItem[]>([]);
   const [sliceOfLife, setSliceOfLife] = useState<AnimeItem[]>([]);
   const [sciFi, setSciFi] = useState<AnimeItem[]>([]);
+  const [history, setHistory] = useState<AnimeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,11 +43,15 @@ export function HomeView({ onCardClick }: HomeViewProps) {
           .filter(a => a.tags.some(t => ['Sci-Fi', 'Mecha', 'Fantasy', 'Supernatural'].includes(t)))
           .slice(0, 12);
 
+        const historyList = await api.history();
+        if (cancelled) return;
+
         setHero(heroSlides.length >= 2 ? heroSlides : trendRow.slice(0, 3));
         setTrending(trendRow);
         setShonen(shonenList.length > 2 ? shonenList : trendRow.slice(0, 8));
         setSliceOfLife(solList.length > 2 ? solList : trendRow.slice(2, 10));
         setSciFi(sciFiList.length > 2 ? sciFiList : trendRow.slice(4, 12));
+        setHistory(historyList);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load');
       } finally {
@@ -84,6 +89,14 @@ export function HomeView({ onCardClick }: HomeViewProps) {
       <HeroSlideshow slides={hero} onCardClick={onCardClick} />
 
       <div className="-mt-12 relative z-10">
+        {history.length > 0 && (
+          <AnimeRow title="Continue Watching" subtitle="Resume where you left off">
+            {history.map((item) => (
+              <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} />
+            ))}
+          </AnimeRow>
+        )}
+
         <AnimeRow title="Trending Now" subtitle="What everyone is watching">
           {trending.map((item) => (
             <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} />

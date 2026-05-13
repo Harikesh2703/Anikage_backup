@@ -38,7 +38,7 @@ class AllAnimeAPI {
     fs.writeFileSync(tempFile, JSON.stringify(payload));
 
     try {
-      const curlCmd = `curl -s -H "User-Agent: ${this.userAgent}" -H "Referer: ${this.referer}" -H "Content-Type: application/json" --data @"${tempFile}" "${this.apiUrl}"`;
+      const curlCmd = `curl -s -H "User-Agent: ${this.userAgent}" -H "Referer: ${this.referer}" -H "Origin: https://allmanga.to" -H "Accept: application/json" -H "Accept-Language: en-US,en;q=0.9" -H "Sec-Fetch-Dest: empty" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Site: cross-site" -H "Content-Type: application/json" --data @"${tempFile}" "${this.apiUrl}"`;
 
       const { stdout } = await execAsync(curlCmd, { maxBuffer: 10 * 1024 * 1024 });
       return JSON.parse(stdout);
@@ -50,7 +50,7 @@ class AllAnimeAPI {
   }
 
   async execGet(url) {
-    const curlCmd = `curl -s -H "User-Agent: ${this.userAgent}" -H "Referer: ${this.referer}" "${url}"`;
+    const curlCmd = `curl -s -H "User-Agent: ${this.userAgent}" -H "Referer: ${this.referer}" -H "Origin: https://allmanga.to" -H "Accept: */*" -H "Accept-Language: en-US,en;q=0.9" -H "Sec-Fetch-Dest: empty" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Site: same-site" "${url}"`;
     const { stdout } = await execAsync(curlCmd, { maxBuffer: 10 * 1024 * 1024 });
     return stdout;
   }
@@ -180,7 +180,8 @@ class AllAnimeAPI {
       if (!providerId.includes('apivtwo')) {
         return [{
           quality: 'unknown',
-          url: providerId.startsWith('http') ? providerId : `https://${providerId}`
+          url: providerId.startsWith('http') ? providerId : `https://${providerId}`,
+          provider: providerName
         }];
       }
 
@@ -199,7 +200,8 @@ class AllAnimeAPI {
         for (const match of linkMatches) {
           links.push({
             quality: match[2],
-            url: match[1]
+            url: match[1],
+            provider: providerName
           });
         }
 
@@ -208,13 +210,13 @@ class AllAnimeAPI {
         for (const match of m3u8Matches) {
           links.push({
             quality: 'hls',
-            url: match[1]
+            url: match[1],
+            provider: providerName
           });
         }
       }
 
       helpers.success(`${providerName} Links Fetched`);
-      console.log("DEBUG: Extracted Links ->", JSON.stringify(links, null, 2));
       return links;
     } catch (error) {
       console.error(`Failed to get links from ${providerName}: ${error.message}`);
@@ -228,25 +230,7 @@ class AllAnimeAPI {
   async generateLinks(sources) {
     const allLinks = [];
 
-    // Provider mapping (prioritizing Ok and Mp4 for yt-dlp compatibility)
-    const providers = {
-      'Ok': sources['Ok'],
-      'Mp4': sources['Mp4'],
-      'Fm-Hls': sources['Fm-Hls'],
-      'Default': sources['Default'],
-      'Luf-Mp4': sources['Luf-Mp4'],
-      'Yt-mp4': sources['Yt-mp4'],
-      'S-mp4': sources['S-mp4']
-    };
-    
-    // Include any other sources not mapped
-    for (const [name, url] of Object.entries(sources)) {
-      if (!providers.hasOwnProperty(name)) {
-        providers[name] = url;
-      }
-    }
-
-    const providerEntries = Object.entries(providers).filter(([_, url]) => !!url);
+    const providerEntries = Object.entries(sources).filter(([_, url]) => !!url);
     
     const results = await Promise.all(
       providerEntries.map(async ([name, sourceUrl]) => {

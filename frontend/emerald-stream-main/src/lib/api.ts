@@ -16,10 +16,26 @@ export interface AnimeItem {
 export interface StreamSource {
   url: string;
   quality: string;
+  provider: string;
+}
+
+export interface StreamResponse {
+  sources: StreamSource[];
+  fallback: string;
 }
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) throw new Error(`API error ${res.status}: ${path}`);
+  return res.json() as Promise<T>;
+}
+
+async function post<T>(path: string, body: any): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
   if (!res.ok) throw new Error(`API error ${res.status}: ${path}`);
   return res.json() as Promise<T>;
 }
@@ -39,5 +55,17 @@ export const api = {
     get<string[]>(`/episodes/${showId}`),
 
   stream: (showId: string, episode: string) =>
-    get<StreamSource>(`/sources/${showId}/${episode}`),
+    get<StreamResponse>(`/sources/${showId}/${episode}`),
+
+  history: () =>
+    get<AnimeItem[]>(`/history`),
+
+  recordHistory: (anime: AnimeItem, episode: string) =>
+    post<{ success: boolean }>('/history', {
+      id: anime.id,
+      title: anime.title,
+      coverImage: anime.coverImage,
+      episode,
+      tags: anime.tags
+    }),
 };

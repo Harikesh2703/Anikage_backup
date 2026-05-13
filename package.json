@@ -1,6 +1,6 @@
 {
   "name": "ani-cli",
-  "version": "4.10.4",
+  "version": "1.0.0",
   "description": "Anikage Desktop - Premium Anime Streaming",
   "main": "electron-main.mjs",
   "bin": {
@@ -40,7 +40,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/pystardust/ani-cli.git"
+    "url": "https://github.com/Harikesh2703/Anikage_backup.git"
   },
   "devDependencies": {
     "electron": "^41.5.0",
@@ -50,18 +50,60 @@
   "build": {
     "appId": "com.anikage.app",
     "productName": "Anikage",
+    "icon": "icon256.ico",
+    "asar": true,
+    "asarUnpack": [
+      "server/**/*",
+      "src/**/*",
+      "node_modules/**/*"
+    ],
     "files": [
       "**/*",
-      "electron-main.mjs"
+      "!dist_electron",
+      "!frontend/emerald-stream-main/src",
+      "!frontend/emerald-stream-main/node_modules",
+      "frontend/emerald-stream-main/dist/**/*"
     ],
     "directories": {
-      "output": "dist"
+      "output": "dist_electron"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "flatpak"
+      ],
+      "category": "Video",
+      "maintainer": "HERWIN VG <contact@anikage.com>",
+      "synopsis": "Premium Anime Streaming Desktop Client"
+    },
+    "flatpak": {
+      "branch": "stable",
+      "description": "Premium Anime Streaming Desktop Client with built-in server.",
+      "finishArgs": [
+        "--share=ipc",
+        "--share=network",
+        "--socket=x11",
+        "--socket=wayland",
+        "--socket=pulseaudio",
+        "--device=dri",
+        "--filesystem=home"
+      ]
     },
     "win": {
       "target": "nsis"
     },
     "mac": {
-      "target": "dmg"
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Anikage",
+      "artifactName": "Anikage_Setup_${version}.${ext}"
     }
   }
 }

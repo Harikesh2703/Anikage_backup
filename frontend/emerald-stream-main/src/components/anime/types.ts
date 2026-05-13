@@ -1,1 +1,1 @@
-export type AppView = "auth" | "home" | "analytics";
+export type AppView = "auth" | "home" | "analytics" | "notifications" | "settings";

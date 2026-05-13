@@ -1,5 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { AnalyticsView } from '@/components/anime/AnalyticsView';
+import { NotificationsView, type AppNotification } from '@/components/anime/NotificationsView';
+import { SettingsView } from '@/components/anime/SettingsView';
 import { HomeView } from '@/components/anime/HomeView';
 import { Navbar } from '@/components/anime/Navbar';
 import { EpisodeModal } from '@/components/anime/EpisodeModal';
@@ -19,11 +21,50 @@ export function AnimeApp() {
 
   // Player state
   const [playerOpen, setPlayerOpen] = useState(false);
+  const [sources, setSources] = useState<StreamSource[]>([]);
+  const [sourceIndex, setSourceIndex] = useState(0);
   const [streamUrl, setStreamUrl] = useState('');
   const [streamLoading, setStreamLoading] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [currentEpisode, setCurrentEpisode] = useState('');
   const [episodeList, setEpisodeList] = useState<string[]>([]);
+  
+  // Notifications
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+
+  useEffect(() => {
+    // Listen for background updates
+    // @ts-ignore
+    if (window.electron) {
+      // @ts-ignore
+      const removeListener = window.electron.on('update-available', (data: any) => {
+        setNotifications(prev => [
+          {
+            id: `update-${data.version}`,
+            type: 'update',
+            title: 'Scraper Hot-Fix Available',
+            message: data.changelog || `A critical fix is available for the anime sources. v${data.version}`,
+            version: data.version,
+            patchUrl: data.url,
+            timestamp: new Date(),
+            isRead: false
+          },
+          ...prev
+        ]);
+      });
+      return () => removeListener();
+    }
+  }, []);
+
+  const installPatch = async (id: string, url: string) => {
+    // @ts-ignore
+    const result = await window.electron.invoke('patch-scraper', { url });
+    if (result.success) {
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true, message: 'Patch applied successfully! Restart the app to see changes.' } : n));
+    } else {
+      alert(`Patching failed: ${result.error}`);
+    }
+  };
 
   // Called by AnimeCard when user clicks a card
   const openEpisodeModal = useCallback((anime: AnimeItem) => {
@@ -35,26 +76,88 @@ export function AnimeApp() {
     setStreamLoading(true);
     setStreamError(null);
     setStreamUrl('');
+    setSources([]);
+    setSourceIndex(0);
     setCurrentEpisode(episode);
     try {
-      const source: StreamSource = await api.stream(anime.id, episode);
-      if (!source.url) throw new Error('No stream URL returned from server.');
+      const response = await api.stream(anime.id, episode);
+      if (!response.sources || response.sources.length === 0) throw new Error('No stream sources found.');
       
-      const isDirectVideo = source.url.includes('.m3u8') || source.url.includes('.mp4') || source.url.includes('.mkv');
+      setSources(response.sources);
+      
+      // Load the first source
+      const firstSource = response.sources[0];
+      const isDirectVideo = 
+        firstSource.url.includes('.m3u8') || 
+        firstSource.url.includes('.mp4') || 
+        firstSource.url.includes('.mkv') ||
+        firstSource.url.includes('fast4speed.rsvp') ||
+        firstSource.url.includes('googlevideo.com');
       
       if (isDirectVideo) {
-        const proxiedUrl = `http://localhost:3001/api/proxy?url=${encodeURIComponent(source.url)}`;
+        const proxiedUrl = `http://127.0.0.1:3001/api/proxy?url=${encodeURIComponent(firstSource.url)}`;
         setStreamUrl(proxiedUrl);
       } else {
-        // It's likely an embed page URL
-        setStreamUrl(source.url);
+        setStreamUrl(firstSource.url);
       }
+
+      // Record this watch in history
+      api.recordHistory(anime, episode).catch(e => console.error('Failed to record history:', e));
     } catch (err) {
       setStreamError(err instanceof Error ? err.message : 'Stream fetch failed');
     } finally {
       setStreamLoading(false);
     }
   }, []);
+
+  // Manual source switching or automatic fallback
+  const tryNextSource = useCallback(() => {
+    if (sourceIndex >= sources.length - 1) {
+      setStreamError('All sources failed. Try another episode.');
+      return;
+    }
+
+    const nextIndex = sourceIndex + 1;
+    setSourceIndex(nextIndex);
+    const nextSource = sources[nextIndex];
+    
+    const isDirectVideo = 
+      nextSource.url.includes('.m3u8') || 
+      nextSource.url.includes('.mp4') || 
+      nextSource.url.includes('.mkv') ||
+      nextSource.url.includes('fast4speed.rsvp') ||
+      nextSource.url.includes('googlevideo.com');
+
+    if (isDirectVideo) {
+      const proxiedUrl = `http://127.0.0.1:3001/api/proxy?url=${encodeURIComponent(nextSource.url)}`;
+      setStreamUrl(proxiedUrl);
+    } else {
+      setStreamUrl(nextSource.url);
+    }
+    setStreamError(null);
+  }, [sourceIndex, sources]);
+
+  const changeSource = useCallback((index: number) => {
+    if (index < 0 || index >= sources.length) return;
+    
+    setSourceIndex(index);
+    const nextSource = sources[index];
+    
+    const isDirectVideo = 
+      nextSource.url.includes('.m3u8') || 
+      nextSource.url.includes('.mp4') || 
+      nextSource.url.includes('.mkv') ||
+      nextSource.url.includes('fast4speed.rsvp') ||
+      nextSource.url.includes('googlevideo.com');
+
+    if (isDirectVideo) {
+      const proxiedUrl = `http://127.0.0.1:3001/api/proxy?url=${encodeURIComponent(nextSource.url)}`;
+      setStreamUrl(proxiedUrl);
+    } else {
+      setStreamUrl(nextSource.url);
+    }
+    setStreamError(null);
+  }, [sources]);
 
   // Called by EpisodeModal when user picks an episode
   const watchEpisode = useCallback(async (episode: string, episodes: string[]) => {
@@ -81,12 +184,32 @@ export function AnimeApp() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <Navbar view={view} onNavigate={(v: AppView) => setView(v)} onCardClick={openEpisodeModal} />
+      <Navbar 
+        view={view} 
+        onNavigate={(v: AppView) => setView(v)} 
+        onCardClick={openEpisodeModal} 
+        hasNotifications={notifications.some(n => !n.isRead)}
+      />
 
-      {view === 'home'
-        ? <HomeView onCardClick={openEpisodeModal} />
-        : <AnalyticsView onCardClick={openEpisodeModal} />
-      }
+      {view === 'home' && (
+        <HomeView onCardClick={openEpisodeModal} />
+      )}
+      
+      {view === 'analytics' && (
+        <AnalyticsView onCardClick={openEpisodeModal} />
+      )}
+
+      {view === 'notifications' && (
+        <NotificationsView 
+          notifications={notifications} 
+          onInstallPatch={installPatch} 
+          onMarkAsRead={(id) => setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n))}
+        />
+      )}
+
+      {view === 'settings' && (
+        <SettingsView />
+      )}
 
       {/* Episode picker modal */}
       {selectedAnime && (
@@ -108,6 +231,11 @@ export function AnimeApp() {
           error={streamError}
           onClose={closePlayer}
           onEpisodeChange={changeEpisode}
+          onTryNextSource={tryNextSource}
+          onSourceChange={changeSource}
+          currentSourceIndex={sourceIndex}
+          allSources={sources}
+          hasMoreSources={sourceIndex < sources.length - 1}
         />
       )}
     </div>

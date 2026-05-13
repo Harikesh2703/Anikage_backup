@@ -6,7 +6,7 @@ class Helpers {
    */
   die(message) {
     console.error(chalk.red.bold(message));
-    process.exit(1);
+    throw new Error(message);
   }
   
   /**

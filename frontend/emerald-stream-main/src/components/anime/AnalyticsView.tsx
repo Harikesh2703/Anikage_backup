@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
-import { Clock, Flame, Tv, Loader2 } from 'lucide-react';
+import { Clock, Flame, Tv, Loader2, RefreshCcw } from 'lucide-react';
 import { AnimeCard } from '@/components/anime/AnimeCard';
 import { AnimeRow } from '@/components/anime/AnimeRow';
 import { api } from '@/lib/api';
@@ -46,15 +46,22 @@ interface AnalyticsViewProps {
 export function AnalyticsView({ onCardClick }: AnalyticsViewProps) {
   const [genreStats, setGenreStats] = useState<GenreStat[]>([]);
   const [recommendations, setRecommendations] = useState<AnimeItem[]>([]);
+  const [historyCount, setHistoryCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       try {
-        const all = await api.trending({ limit: 30 });
-        // Derive genre stats from the trending set
+        const history = await api.history();
+        const trending = await api.trending({ limit: 15 });
+        setHistoryCount(history.length);
+        
+        // Use history for stats, fallback to trending for discovery
+        const dataSet = history.length > 0 ? history : trending;
+
+        // Derive genre stats from the data set
         const counts: Record<string, number> = {};
-        for (const anime of all) {
+        for (const anime of dataSet) {
           for (const tag of anime.tags.slice(0, 3)) {
             counts[tag] = (counts[tag] ?? 0) + 1;
           }
@@ -68,7 +75,10 @@ export function AnalyticsView({ onCardClick }: AnalyticsViewProps) {
           color: GENRE_COLORS[i % GENRE_COLORS.length],
         }));
         setGenreStats(stats);
-        setRecommendations(all.slice(0, 8));
+        
+        // Recommendations: if we have history, show trending shows in those genres
+        // otherwise just show trending
+        setRecommendations(trending.slice(0, 8));
       } catch {
         // keep empty
       } finally {
@@ -101,9 +111,9 @@ export function AnalyticsView({ onCardClick }: AnalyticsViewProps) {
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
-        <StatCard icon={<Clock className="w-5 h-5" />} label="Trending Titles" value={String(recommendations.length)} />
-        <StatCard icon={<Tv className="w-5 h-5" />} label="Genres Tracked" value={String(genreStats.length)} />
-        <StatCard icon={<Flame className="w-5 h-5" />} label="Top Genre" value={topGenre?.name ?? '—'} />
+        <StatCard icon={<Clock className="w-5 h-5" />} label="Titles Watched" value={String(historyCount)} />
+        <StatCard icon={<Tv className="w-5 h-5" />} label="Genres Explored" value={String(genreStats.length)} />
+        <StatCard icon={<Flame className="w-5 h-5" />} label="Your Top Genre" value={topGenre?.name ?? '—'} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-12">
@@ -166,13 +176,49 @@ export function AnalyticsView({ onCardClick }: AnalyticsViewProps) {
       </div>
 
       <AnimeRow
-        title={topGenre ? `Because you love ${topGenre.name}...` : 'Recommended'}
-        subtitle="Hand-picked from trending"
+        title={historyCount > 0 ? "You might also like..." : "Recommended for You"}
+        subtitle={historyCount > 0 ? `Based on your love for ${topGenre?.name}` : "Hand-picked from trending"}
       >
         {recommendations.map((item) => (
           <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} />
         ))}
       </AnimeRow>
+
+      {/* Maintenance Section */}
+      <div className="mt-16 pt-10 border-t border-border">
+        <div className="bg-card border border-border rounded-2xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 overflow-hidden relative">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none" />
+          
+          <div className="flex-1 text-center md:text-left relative">
+            <h2 className="text-2xl font-black text-foreground mb-2 flex items-center justify-center md:justify-start gap-3">
+              <RefreshCcw className="w-6 h-6 text-primary animate-pulse" />
+              System Maintenance
+            </h2>
+            <p className="text-muted-foreground text-sm max-w-lg">
+              Having playback issues? This will clear all downloaded scraper patches and temporary logs. 
+              <span className="text-primary font-bold ml-1">Your watch history and library will NOT be deleted.</span>
+            </p>
+          </div>
+
+          <button
+            onClick={async () => {
+              if (confirm('Are you sure? This will wipe all scraper patches and logs. The app will restart to factory settings (History is safe).')) {
+                // @ts-ignore
+                const res = await window.electron.invoke('factory-reset');
+                if (res.success) {
+                  alert('Reset successful. The app will now reload.');
+                  window.location.reload();
+                } else {
+                  alert('Reset failed: ' + res.error);
+                }
+              }
+            }}
+            className="px-8 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 rounded-xl font-black text-sm transition-all uppercase tracking-widest whitespace-nowrap"
+          >
+            Reset Application
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

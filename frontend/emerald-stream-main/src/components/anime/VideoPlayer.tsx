@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
 import {
   X, Play, Pause, Volume2, VolumeX, Maximize, Minimize,
-  SkipBack, SkipForward, Loader2, ChevronLeft, ChevronRight
+  SkipBack, SkipForward, Loader2, ChevronLeft, ChevronRight,
+  RotateCcw, ShieldAlert
 } from 'lucide-react';
+import type { StreamSource } from '@/lib/api';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -12,13 +14,20 @@ interface VideoPlayerProps {
   totalEpisodes: string[];
   onClose: () => void;
   onEpisodeChange: (ep: string) => void;
+  onTryNextSource: () => void;
+  onSourceChange: (index: number) => void;
+  currentSourceIndex: number;
+  allSources: StreamSource[];
+  hasMoreSources: boolean;
   loading: boolean;
   error: string | null;
 }
 
 export function VideoPlayer({
   streamUrl, title, episode, totalEpisodes,
-  onClose, onEpisodeChange, loading, error
+  onClose, onEpisodeChange, onTryNextSource,
+  onSourceChange, currentSourceIndex, allSources,
+  hasMoreSources, loading, error
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -91,12 +100,17 @@ export function VideoPlayer({
     const onDuration = () => setDuration(video.duration);
     const onWaiting = () => setBuffering(true);
     const onCanPlay = () => setBuffering(false);
+    const onError = () => {
+      console.error('[Video Error] Playback failed, trying next source...');
+      if (hasMoreSources) onTryNextSource();
+    };
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('durationchange', onDuration);
     video.addEventListener('waiting', onWaiting);
     video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('error', onError);
     return () => {
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
@@ -104,8 +118,9 @@ export function VideoPlayer({
       video.removeEventListener('durationchange', onDuration);
       video.removeEventListener('waiting', onWaiting);
       video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('error', onError);
     };
-  }, []);
+  }, [onTryNextSource, hasMoreSources]);
 
   // Fullscreen listener
   useEffect(() => {
@@ -206,10 +221,26 @@ export function VideoPlayer({
 
         {/* Error overlay */}
         {error && !loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 px-6 text-center">
-            <p className="text-red-400 font-semibold text-lg">Stream unavailable</p>
-            <p className="text-white/60 text-sm max-w-sm">{error}</p>
-            <p className="text-white/40 text-xs">Try a different episode or wait a moment.</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/90 px-6 text-center">
+            <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
+              <ShieldAlert className="w-8 h-8 text-red-500" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-white font-semibold text-lg">Playback Issue Detected</p>
+              <p className="text-white/60 text-sm max-w-sm">{error}</p>
+            </div>
+            
+            {hasMoreSources ? (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onTryNextSource(); }}
+                className="mt-2 flex items-center gap-2 bg-primary hover:bg-primary/80 text-white px-6 py-2.5 rounded-full font-medium transition-all transform hover:scale-105 active:scale-95 shadow-lg"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Try Another Source
+              </button>
+            ) : (
+              <p className="text-white/40 text-xs">No more sources available for this episode.</p>
+            )}
           </div>
         )}
 
@@ -276,33 +307,42 @@ export function VideoPlayer({
 
           <div className="flex-1" />
 
-          {/* Title + Episode */}
-          <span className="text-white/80 text-sm font-medium truncate max-w-[200px] hidden md:block">
-            {title} — Ep {episode}
-          </span>
+          <div className="hidden lg:flex flex-col items-center">
+            <span className="text-white/80 text-sm font-medium truncate max-w-[200px]">
+              {title} — Ep {episode}
+            </span>
+            {allSources[currentSourceIndex] && (
+              <span className="text-white/40 text-[10px] uppercase tracking-widest">
+                Source: {allSources[currentSourceIndex].provider} ({allSources[currentSourceIndex].quality})
+              </span>
+            )}
+          </div>
 
           <div className="flex-1" />
 
-          {/* Quality Selector */}
-          {availableQualities.length > 0 && (
-            <select
-              value={currentQuality}
-              onChange={(e) => {
-                const q = e.target.value;
-                setCurrentQuality(q);
-                if (hlsRef.current) {
-                  if (q === 'Auto') hlsRef.current.currentLevel = -1;
-                  else {
-                    const idx = availableQualities.indexOf(q) - 1;
-                    hlsRef.current.currentLevel = idx;
-                  }
-                }
-              }}
-              className="bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold py-1 px-2 rounded border-0 outline-none cursor-pointer appearance-none uppercase tracking-wider"
+          {/* Switch Source Button */}
+          {hasMoreSources && (
+            <button 
+              onClick={onTryNextSource}
+              title="Try next source"
+              className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-full transition-colors group"
             >
-              {availableQualities.map(q => <option key={q} value={q} className="bg-black">{q}</option>)}
-            </select>
+              <RotateCcw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
+            </button>
           )}
+
+          {/* Unified Quality/Source Selector */}
+          <select
+            value={currentSourceIndex}
+            onChange={(e) => onSourceChange(parseInt(e.target.value))}
+            className="bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold py-1.5 px-3 rounded border-0 outline-none cursor-pointer appearance-none uppercase tracking-wider shadow-sm transition-all"
+          >
+            {allSources.map((src, i) => (
+              <option key={i} value={i} className="bg-black text-white">
+                {src.provider} — {src.quality}
+              </option>
+            ))}
+          </select>
 
           {/* Volume */}
           <button onClick={toggleMute} className="text-white/70 hover:text-white transition-colors">
@@ -327,9 +367,17 @@ export function VideoPlayer({
       {!isIframe && (
         <div className={`absolute inset-x-0 top-0 flex items-center justify-between px-4 py-3 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
           style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 100%)' }}>
-        <div>
-          <p className="text-white font-semibold text-sm">{title}</p>
-          <p className="text-white/50 text-xs">Episode {episode}</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <p className="text-white font-semibold text-sm">{title}</p>
+            <p className="text-white/50 text-xs">Episode {episode}</p>
+          </div>
+          {allSources[currentSourceIndex] && (
+            <div className="px-2 py-0.5 rounded bg-white/10 border border-white/10 hidden sm:block">
+              <p className="text-white/40 text-[9px] uppercase font-bold tracking-tighter">Current Source</p>
+              <p className="text-white/70 text-[10px] font-medium leading-none">{allSources[currentSourceIndex].provider} • {allSources[currentSourceIndex].quality}</p>
+            </div>
+          )}
         </div>
         <button onClick={onClose}
           className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
@@ -338,13 +386,25 @@ export function VideoPlayer({
       </div>
       )}
 
-      {/* Persistent Close Button for Iframes */}
+      {/* Persistent Controls for Iframes */}
       {isIframe && (
-        <button onClick={onClose}
-          className="absolute top-4 right-4 z-[60] w-10 h-10 rounded-full bg-black/60 hover:bg-red-500/80 flex items-center justify-center transition-all border border-white/20 shadow-xl"
-        >
-          <X className="w-6 h-6 text-white" />
-        </button>
+        <div className="absolute top-4 right-4 z-[60] flex items-center gap-2">
+          {hasMoreSources && (
+            <button 
+              onClick={onTryNextSource}
+              title="Try another source"
+              className="w-10 h-10 rounded-full bg-black/60 hover:bg-primary/80 flex items-center justify-center transition-all border border-white/20 shadow-xl group"
+            >
+              <RotateCcw className="w-5 h-5 text-white group-hover:rotate-180 transition-transform duration-500" />
+            </button>
+          )}
+          <button onClick={onClose}
+            title="Close player"
+            className="w-10 h-10 rounded-full bg-black/60 hover:bg-red-500/80 flex items-center justify-center transition-all border border-white/20 shadow-xl"
+          >
+            <X className="w-6 h-6 text-white" />
+          </button>
+        </div>
       )}
     </div>
   );

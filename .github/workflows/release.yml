@@ -4,17 +4,15 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch: # <--- ADD THIS LINE (make sure it has 2 spaces in front)
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
 
 jobs:
-# ... the rest of the file stays the same
   release:
     runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
-        # This starts a Windows and a Mac computer in the cloud simultaneously
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
 
     steps:
       - name: Checkout Code
@@ -27,9 +25,14 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: |
+          npm install
+          cd frontend/emerald-stream-main
+          npm install
 
-      # This is the magic part that fixes the SQLite Linux-vs-Windows bug
+      - name: Build Frontend
+        run: npm run build:frontend
+
       - name: Rebuild Native Modules (SQLite Fix)
         # Using version 41.5.0 from your devDependencies
         run: npx @electron/rebuild -f -w sqlite3 -v 41.5.0
@@ -38,5 +41,5 @@ jobs:
         run: npm run dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # This helps avoid certificate errors on Mac during the build process
+          # Prevents build failure if you don't have Apple certificates yet
           CSC_IDENTITY_AUTO_DISCOVERY: false

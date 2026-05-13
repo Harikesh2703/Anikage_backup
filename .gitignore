@@ -10,11 +10,15 @@ frontend/emerald-stream-main/.env
 # Build output
 dist/
 frontend/emerald-stream-main/dist/
+dist_electron/
+electron-dist/
+*.zip
 .wrangler/
 frontend/emerald-stream-main/.wrangler/
 
 # Database
 server/database.sqlite
+anikage.db
 
 # Logs
 *.log

@@ -4,7 +4,7 @@ const fs = require('fs');
 
 class Config {
   constructor() {
-    this.version = '4.10.4';
+    this.version = '1.0.0';
     this.agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0';
     this.allanimeRefr = 'https://allmanga.to';
     this.allanimeBase = 'allanime.day';
