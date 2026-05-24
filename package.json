@@ -1,17 +1,17 @@
 {
-  "name": "ani-cli",
+  "name": "anikage",
   "version": "1.0.0",
   "description": "Anikage Desktop - Premium Anime Streaming",
   "main": "electron-main.mjs",
   "bin": {
-    "ani-cli": "./bin/ani-cli.js"
+    "anikage": "./bin/anikage.js"
   },
   "scripts": {
-    "start": "node bin/ani-cli.js",
+    "start": "node bin/anikage.js",
     "server": "node server/index.mjs",
     "frontend": "cd frontend/emerald-stream-main && npm run dev",
     "build:frontend": "cd frontend/emerald-stream-main && npm run build",
-    "desktop": "concurrently \"npm run frontend\" \"electron .\"",
+    "desktop": "concurrently \"npm run frontend\" \"electron . --no-sandbox\"",
     "dist": "electron-builder",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -22,7 +22,7 @@
     "allmanga",
     "video"
   ],
-  "author": "ani-cli contributors",
+  "author": "Anikage Team",
   "license": "GPL-3.0",
   "dependencies": {
     "chalk": "^4.1.2",
@@ -69,41 +69,21 @@
     },
     "linux": {
       "target": [
-        "AppImage",
-        "deb",
-        "flatpak"
+        "AppImage"
       ],
+      "artifactName": "Anikage",
       "category": "Video",
       "maintainer": "HERWIN VG <contact@anikage.com>",
       "synopsis": "Premium Anime Streaming Desktop Client"
     },
-    "flatpak": {
-      "branch": "stable",
-      "description": "Premium Anime Streaming Desktop Client with built-in server.",
-      "finishArgs": [
-        "--share=ipc",
-        "--share=network",
-        "--socket=x11",
-        "--socket=wayland",
-        "--socket=pulseaudio",
-        "--device=dri",
-        "--filesystem=home"
-      ]
-    },
     "win": {
-      "target": "nsis"
-    },
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ]
+      "target": "nsis",
+      "artifactName": "Anikage_Setup.exe"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "Anikage",
-      "artifactName": "Anikage_Setup_${version}.${ext}"
+      "shortcutName": "Anikage"
     }
   }
 }

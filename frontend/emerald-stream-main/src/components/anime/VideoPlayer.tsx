@@ -3,7 +3,7 @@ import Hls from 'hls.js';
 import {
   X, Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipBack, SkipForward, Loader2, ChevronLeft, ChevronRight,
-  RotateCcw, ShieldAlert
+  RotateCcw, ShieldAlert, Server
 } from 'lucide-react';
 import type { StreamSource } from '@/lib/api';
 
@@ -45,6 +45,7 @@ export function VideoPlayer({
   const [buffering, setBuffering] = useState(false);
   const [availableQualities, setAvailableQualities] = useState<string[]>([]);
   const [currentQuality, setCurrentQuality] = useState('Auto');
+  const [showSourceGuide, setShowSourceGuide] = useState(true);
 
   const currentEpIndex = totalEpisodes.indexOf(episode);
   const hasPrev = currentEpIndex > 0;
@@ -59,6 +60,8 @@ export function VideoPlayer({
 
     // Cleanup previous instance
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    setAvailableQualities([]);
+    setCurrentQuality('Auto');
 
     const isHls = streamUrl.includes('.m3u8');
 
@@ -129,6 +132,16 @@ export function VideoPlayer({
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
+  // Auto-hide the source guide after 8 seconds
+  useEffect(() => {
+    if (showSourceGuide) {
+      const timer = setTimeout(() => {
+        setShowSourceGuide(false);
+      }, 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [showSourceGuide]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -148,8 +161,9 @@ export function VideoPlayer({
   const resetControlsTimer = useCallback(() => {
     setShowControls(true);
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    if (showSourceGuide) return; // Keep controls visible while guide is active
     controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
-  }, []);
+  }, [showSourceGuide]);
 
   const togglePlay = () => {
     const v = videoRef.current;
@@ -178,6 +192,17 @@ export function VideoPlayer({
     const rect = e.currentTarget.getBoundingClientRect();
     const pct = (e.clientX - rect.left) / rect.width;
     v.currentTime = pct * v.duration;
+  };
+
+  const handleQualityChange = (q: string) => {
+    setCurrentQuality(q);
+    if (!hlsRef.current) return;
+    if (q === 'Auto') {
+      hlsRef.current.currentLevel = -1;
+    } else {
+      const levelIndex = hlsRef.current.levels.findIndex(l => l.height + 'p' === q);
+      if (levelIndex !== -1) hlsRef.current.currentLevel = levelIndex;
+    }
   };
 
   const formatTime = (s: number) => {
@@ -231,12 +256,12 @@ export function VideoPlayer({
             </div>
             
             {hasMoreSources ? (
-              <button 
-                onClick={(e) => { e.stopPropagation(); onTryNextSource(); }}
-                className="mt-2 flex items-center gap-2 bg-primary hover:bg-primary/80 text-white px-6 py-2.5 rounded-full font-medium transition-all transform hover:scale-105 active:scale-95 shadow-lg"
+              <button
+                onClick={onTryNextSource}
+                className="mt-2 px-5 py-2.5 bg-primary text-primary-foreground hover:bg-primary/95 active:scale-95 font-semibold rounded-lg text-sm flex items-center gap-2 transition-all shadow-lg shadow-primary/20"
               >
-                <RotateCcw className="w-4 h-4" />
-                Try Another Source
+                <Server className="w-4 h-4" />
+                Try Next Mirror / API ({currentSourceIndex + 2}/{allSources.length})
               </button>
             ) : (
               <p className="text-white/40 text-xs">No more sources available for this episode.</p>
@@ -258,6 +283,25 @@ export function VideoPlayer({
       {!isIframe && (
         <div className={`absolute inset-x-0 bottom-0 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
           style={{ background: 'linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.7) 50%, transparent 100%)' }}>
+
+        {/* Next Mirror Guide Tooltip */}
+        {showSourceGuide && allSources.length > 1 && (
+          <div className="absolute bottom-20 right-4 lg:right-64 z-[70] max-w-xs animate-bounce bg-gradient-to-br from-primary/95 via-primary/90 to-primary/80 text-primary-foreground p-3.5 rounded-xl shadow-2xl border border-primary/30 backdrop-blur-md">
+            {/* Arrow pointing down */}
+            <div className="absolute -bottom-1.5 right-12 w-3 h-3 bg-primary/90 rotate-45" />
+            <div className="flex flex-col gap-1.5 text-left relative">
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-[10px] uppercase tracking-wider text-white/90">Tip: Slow Stream?</span>
+                <button onClick={(e) => { e.stopPropagation(); setShowSourceGuide(false); }} className="text-white/70 hover:text-white p-0.5 rounded-full hover:bg-white/10 transition-all">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p className="text-[11px] font-medium leading-relaxed text-white/95">
+                If the video is not playing or loading slowly, switch to the next mirror or API using this button.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Progress bar */}
         <div className="px-4 pt-6 pb-2 cursor-pointer" onClick={seek}>
@@ -311,38 +355,57 @@ export function VideoPlayer({
             <span className="text-white/80 text-sm font-medium truncate max-w-[200px]">
               {title} — Ep {episode}
             </span>
-            {allSources[currentSourceIndex] && (
-              <span className="text-white/40 text-[10px] uppercase tracking-widest">
-                Source: {allSources[currentSourceIndex].provider} ({allSources[currentSourceIndex].quality})
+            {allSources[currentSourceIndex]?.provider && (
+              <span className="text-primary text-[10px] font-semibold uppercase tracking-wider opacity-85 mt-0.5">
+                Provider: {allSources[currentSourceIndex].provider}
               </span>
             )}
           </div>
 
           <div className="flex-1" />
 
-          {/* Switch Source Button */}
-          {hasMoreSources && (
-            <button 
-              onClick={onTryNextSource}
-              title="Try next source"
-              className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-full transition-colors group"
+
+
+          {/* Next Mirror / API Button */}
+          {allSources.length > 1 && (
+            <button
+              onClick={() => {
+                const nextIndex = (currentSourceIndex + 1) % allSources.length;
+                onSourceChange(nextIndex);
+              }}
+              title={`Switch to next mirror/API. Current: ${allSources[currentSourceIndex]?.provider || 'Unknown'} (${allSources[currentSourceIndex]?.quality || 'Auto'})`}
+              className="flex items-center gap-1.5 bg-primary/20 hover:bg-primary/30 active:scale-95 text-primary text-[10px] font-bold py-1.5 px-3 rounded border border-primary/30 transition-all uppercase tracking-wider"
             >
-              <RotateCcw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
+              <Server className="w-3.5 h-3.5" />
+              <span>Next Mirror ({currentSourceIndex + 1}/{allSources.length})</span>
             </button>
           )}
 
-          {/* Unified Quality/Source Selector */}
-          <select
-            value={currentSourceIndex}
-            onChange={(e) => onSourceChange(parseInt(e.target.value))}
-            className="bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold py-1.5 px-3 rounded border-0 outline-none cursor-pointer appearance-none uppercase tracking-wider shadow-sm transition-all"
-          >
-            {allSources.map((src, i) => (
-              <option key={i} value={i} className="bg-black text-white">
-                {src.provider} — {src.quality}
-              </option>
-            ))}
-          </select>
+          {/* Quality Selector (HLS levels or single quality) */}
+          {!isIframe && (
+            <div className="flex items-center bg-primary/20 hover:bg-primary/30 rounded border border-primary/30 px-2 mr-1 transition-all">
+              <span className="text-primary text-[8px] font-black uppercase mr-2 opacity-60">Quality</span>
+              <select
+                value={currentQuality}
+                onChange={(e) => handleQualityChange(e.target.value)}
+                className="bg-transparent text-primary text-[10px] font-bold py-1.5 outline-none cursor-pointer appearance-none uppercase tracking-wider"
+              >
+                {availableQualities.length > 1 ? (
+                  availableQualities.map((q) => (
+                    <option key={q} value={q} className="bg-black text-white">
+                      {q}
+                    </option>
+                  ))
+                ) : (
+                  <option value={allSources[currentSourceIndex]?.quality || 'Auto'} className="bg-black text-white">
+                    {allSources[currentSourceIndex]?.quality || 'Auto'}
+                  </option>
+                )}
+              </select>
+            </div>
+          )}
+
+
 
           {/* Volume */}
           <button onClick={toggleMute} className="text-white/70 hover:text-white transition-colors">
@@ -370,14 +433,17 @@ export function VideoPlayer({
         <div className="flex items-center gap-3">
           <div>
             <p className="text-white font-semibold text-sm">{title}</p>
-            <p className="text-white/50 text-xs">Episode {episode}</p>
-          </div>
-          {allSources[currentSourceIndex] && (
-            <div className="px-2 py-0.5 rounded bg-white/10 border border-white/10 hidden sm:block">
-              <p className="text-white/40 text-[9px] uppercase font-bold tracking-tighter">Current Source</p>
-              <p className="text-white/70 text-[10px] font-medium leading-none">{allSources[currentSourceIndex].provider} • {allSources[currentSourceIndex].quality}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-white/50 text-xs">Episode {episode}</p>
+              {allSources[currentSourceIndex]?.provider && (
+                <>
+                  <span className="text-white/20 text-xs">•</span>
+                  <span className="text-primary font-medium text-xs">Mirror: {allSources[currentSourceIndex].provider}</span>
+                </>
+              )}
             </div>
-          )}
+          </div>
+
         </div>
         <button onClick={onClose}
           className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
@@ -386,16 +452,53 @@ export function VideoPlayer({
       </div>
       )}
 
+      {/* Persistent Title / Info for Iframes */}
+      {isIframe && (
+        <div className="absolute top-4 left-4 z-[60] bg-black/60 px-4 py-2 rounded-lg border border-white/10 shadow-xl pointer-events-none">
+          <p className="text-white font-semibold text-sm">{title}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-white/50 text-xs">Episode {episode}</p>
+            {allSources[currentSourceIndex]?.provider && (
+              <>
+                <span className="text-white/20 text-xs">•</span>
+                <span className="text-primary font-medium text-xs">Mirror: {allSources[currentSourceIndex].provider}</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Persistent Controls for Iframes */}
       {isIframe && (
         <div className="absolute top-4 right-4 z-[60] flex items-center gap-2">
-          {hasMoreSources && (
-            <button 
-              onClick={onTryNextSource}
-              title="Try another source"
-              className="w-10 h-10 rounded-full bg-black/60 hover:bg-primary/80 flex items-center justify-center transition-all border border-white/20 shadow-xl group"
+          {/* Iframe Guide Tooltip */}
+          {showSourceGuide && allSources.length > 1 && (
+            <div className="absolute top-12 right-28 z-[70] max-w-xs animate-bounce bg-gradient-to-br from-primary/95 via-primary/90 to-primary/80 text-primary-foreground p-3.5 rounded-xl shadow-2xl border border-primary/30 backdrop-blur-md w-60">
+              {/* Arrow pointing right/up */}
+              <div className="absolute -top-1.5 right-6 w-3 h-3 bg-primary/90 rotate-45" />
+              <div className="flex flex-col gap-1.5 text-left relative">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-[10px] uppercase tracking-wider text-white/90">Tip: Slow Stream?</span>
+                  <button onClick={(e) => { e.stopPropagation(); setShowSourceGuide(false); }} className="text-white/70 hover:text-white p-0.5 rounded-full hover:bg-white/10 transition-all">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className="text-[11px] font-medium leading-relaxed text-white/95">
+                  If the video is not playing or loading slowly, switch to the next mirror or API using this button.
+                </p>
+              </div>
+            </div>
+          )}
+          {allSources.length > 1 && (
+            <button onClick={() => {
+              const nextIndex = (currentSourceIndex + 1) % allSources.length;
+              onSourceChange(nextIndex);
+            }}
+              title={`Switch to next mirror/API (Current: ${allSources[currentSourceIndex]?.provider || 'Unknown'})`}
+              className="h-10 px-4 rounded-full bg-black/60 hover:bg-primary hover:text-primary-foreground active:scale-95 flex items-center gap-2 text-white font-semibold text-xs transition-all border border-white/20 shadow-xl"
             >
-              <RotateCcw className="w-5 h-5 text-white group-hover:rotate-180 transition-transform duration-500" />
+              <Server className="w-4 h-4" />
+              <span>Next Mirror ({currentSourceIndex + 1}/{allSources.length})</span>
             </button>
           )}
           <button onClick={onClose}

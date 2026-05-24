@@ -37,9 +37,82 @@ db.serialize(() => {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS link_cache (
+      key TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 });
 
 export const db_helper = {
+  // Link caching
+  getLinksFromCache: (key) => {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT payload FROM link_cache WHERE key = ?`;
+      db.get(sql, [key], (err, row) => {
+        if (err) reject(err);
+        else resolve(row ? JSON.parse(row.payload) : null);
+      });
+    });
+  },
+
+  saveLinksToCache: (key, data) => {
+    return new Promise((resolve, reject) => {
+      const payload = JSON.stringify(data);
+      const size = Buffer.byteLength(payload, 'utf8');
+      const MAX_CACHE_SIZE = 10 * 1024 * 1024; // 10MB
+
+      db.serialize(() => {
+        const insertSql = `
+          INSERT INTO link_cache (key, payload, size, created_at)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(key) DO UPDATE SET
+            payload = excluded.payload,
+            size = excluded.size,
+            created_at = CURRENT_TIMESTAMP
+        `;
+        
+        db.run(insertSql, [key, payload, size], (err) => {
+          if (err) return reject(err);
+          
+          db.get(`SELECT SUM(size) as total_size FROM link_cache`, [], (err, row) => {
+            if (err) return reject(err);
+            
+            let totalSize = row.total_size || 0;
+            if (totalSize > MAX_CACHE_SIZE) {
+              db.all(`SELECT key, size FROM link_cache ORDER BY created_at ASC`, [], (err, rows) => {
+                if (err) return reject(err);
+                
+                const keysToDelete = [];
+                for (const r of rows) {
+                  if (totalSize <= MAX_CACHE_SIZE) break;
+                  if (r.key === key && rows.length > 1) continue;
+                  keysToDelete.push(r.key);
+                  totalSize -= r.size;
+                }
+                
+                if (keysToDelete.length > 0) {
+                  const placeholders = keysToDelete.map(() => '?').join(',');
+                  db.run(`DELETE FROM link_cache WHERE key IN (${placeholders})`, keysToDelete, (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                  });
+                } else {
+                  resolve();
+                }
+              });
+            } else {
+              resolve();
+            }
+          });
+        });
+      });
+    });
+  },
+
   // Metadata caching
   saveMetadata: (url, resolution) => {
     return new Promise((resolve, reject) => {

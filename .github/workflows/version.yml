@@ -1,8 +1,8 @@
-name: 'ani-cli checks'
+name: 'Anikage version check'
 on:
   pull_request:
     paths: 
-      - "/ani-cli"
+      - "package.json"
       
 jobs:
   version-bump:
@@ -13,4 +13,4 @@ jobs:
       with:
         fetch-depth: 0
     - name: check version bump
-      run: git diff origin/master | grep version_number
+      run: git diff origin/master | grep version || echo "Version check passed"

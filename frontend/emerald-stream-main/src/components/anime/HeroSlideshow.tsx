@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Play, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Play, Plus, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import type { AnimeItem } from '@/lib/api';
 
 interface HeroSlideshowProps {
@@ -38,7 +38,7 @@ export function HeroSlideshow({ slides, onCardClick }: HeroSlideshowProps) {
       {slides.map((s, i) => (
         <div
           key={s.id}
-          className={`absolute inset-0 transition-opacity duration-1000 ${i === index ? 'opacity-100' : 'opacity-0'}`}
+          className={`absolute inset-0 transition-opacity duration-1000 ${i === index ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none z-0'}`}
         >
           <img
             src={s.banner || s.coverImage}
@@ -53,7 +53,7 @@ export function HeroSlideshow({ slides, onCardClick }: HeroSlideshowProps) {
         </div>
       ))}
 
-      <div className="relative z-10 h-full flex flex-col justify-end pb-20 px-6 md:px-14 max-w-3xl">
+      <div className="relative z-20 h-full flex flex-col justify-end pb-20 px-6 md:px-14 max-w-3xl">
         <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-primary font-semibold mb-3">
           <span className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_10px_var(--primary-glow)]" />
           Trending Now
@@ -95,7 +95,7 @@ export function HeroSlideshow({ slides, onCardClick }: HeroSlideshowProps) {
         </div>
       </div>
 
-      <div className="absolute bottom-6 right-6 z-10 flex items-center gap-2">
+      <div className="absolute bottom-6 right-6 z-20 flex items-center gap-2">
         <button
           type="button"
           aria-label="Previous slide"

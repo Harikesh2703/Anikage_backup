@@ -207,7 +207,11 @@ export function AnalyticsView({ onCardClick }: AnalyticsViewProps) {
                 const res = await window.electron.invoke('factory-reset');
                 if (res.success) {
                   alert('Reset successful. The app will now reload.');
-                  window.location.reload();
+                  try {
+                    await window.electron.invoke('restart-app');
+                  } catch (e) {
+                    window.location.reload();
+                  }
                 } else {
                   alert('Reset failed: ' + res.error);
                 }

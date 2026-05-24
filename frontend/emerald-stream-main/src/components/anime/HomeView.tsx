@@ -88,6 +88,7 @@ export function HomeView({ onCardClick }: HomeViewProps) {
     <div className="pb-20">
       <HeroSlideshow slides={hero} onCardClick={onCardClick} />
 
+
       <div className="-mt-12 relative z-10">
         {history.length > 0 && (
           <AnimeRow title="Continue Watching" subtitle="Resume where you left off">

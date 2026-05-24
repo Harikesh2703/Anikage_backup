@@ -65,51 +65,53 @@ export function Navbar({ view, onNavigate, onCardClick, hasNotifications }: Navb
         </button>
 
         {/* Search */}
-        <div className="flex-1 max-w-xl mx-auto hidden md:flex relative" ref={dropdownRef}>
-          <div className="relative w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => handleInput(e.target.value)}
-              onFocus={() => results.length > 0 && setOpen(true)}
-              placeholder="Search anime..."
-              className="w-full bg-card border border-border rounded-full pl-10 pr-8 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/60 focus:border-primary transition"
-            />
-            {searching && (
-              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-muted-foreground" />
-            )}
-            {!searching && query && (
-              <button
-                type="button"
-                onClick={() => { setQuery(''); setResults([]); setOpen(false); }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+        {view === 'home' && (
+          <div className="flex-1 max-w-xl mx-auto hidden md:flex relative" ref={dropdownRef}>
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => handleInput(e.target.value)}
+                onFocus={() => results.length > 0 && setOpen(true)}
+                placeholder="Search anime..."
+                className="w-full bg-card border border-border rounded-full pl-10 pr-8 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/60 focus:border-primary transition"
+              />
+              {searching && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-muted-foreground" />
+              )}
+              {!searching && query && (
+                <button
+                  type="button"
+                  onClick={() => { setQuery(''); setResults([]); setOpen(false); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Dropdown results */}
+            {open && results.length > 0 && (
+              <div className="absolute top-full mt-2 left-0 right-0 bg-card border border-border rounded-2xl shadow-[var(--shadow-card)] overflow-hidden z-50">
+                <div className="p-3 flex flex-wrap gap-3 max-h-[420px] overflow-y-auto">
+                  {results.map(anime => (
+                    <AnimeCard 
+                      key={anime.id} 
+                      anime={anime} 
+                      className="!w-[130px]" 
+                      onCardClick={(a) => {
+                        onCardClick?.(a);
+                        setOpen(false);
+                        setQuery('');
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
             )}
           </div>
-
-          {/* Dropdown results */}
-          {open && results.length > 0 && (
-            <div className="absolute top-full mt-2 left-0 right-0 bg-card border border-border rounded-2xl shadow-[var(--shadow-card)] overflow-hidden z-50">
-              <div className="p-3 flex flex-wrap gap-3 max-h-[420px] overflow-y-auto">
-                {results.map(anime => (
-                  <AnimeCard 
-                    key={anime.id} 
-                    anime={anime} 
-                    className="!w-[130px]" 
-                    onCardClick={(a) => {
-                      onCardClick?.(a);
-                      setOpen(false);
-                      setQuery('');
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        )}
 
         <nav className="flex items-center gap-1 ml-auto">
           <NavIcon label="Home" active={view === 'home'} onClick={() => onNavigate('home')}>

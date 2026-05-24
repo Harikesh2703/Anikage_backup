@@ -1,7 +1,6 @@
 import { Settings, RefreshCcw, ShieldAlert, Database, FileText, Info, Download, AlertCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { AppNotification } from './NotificationsView';
-import { api } from '../../lib/api';
 
 interface SettingsViewProps {
   notifications: AppNotification[];
@@ -11,16 +10,12 @@ export function SettingsView({ notifications }: SettingsViewProps) {
   const [appVersion] = useState('1.0.0');
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [pendingUpdates, setPendingUpdates] = useState(0);
-  const [versions, setVersions] = useState<any>(null);
 
   useEffect(() => {
     // Check if there are any pending updates
     const pending = notifications.filter(n => !n.isRead && n.type === 'update');
     setPendingUpdates(pending.length);
     setUpdateAvailable(pending.length > 0);
-
-    // Fetch local versions
-    api.getLocalVersions().then(v => setVersions(v)).catch(console.error);
   }, [notifications]);
 
   const handleNavigateToUpdates = () => {
@@ -201,12 +196,7 @@ export function SettingsView({ notifications }: SettingsViewProps) {
             </div>
             <div>
               <h3 className="font-bold text-foreground">Version Info</h3>
-              <div className="text-xs text-muted-foreground flex flex-col gap-1 mt-1">
-                <span className="text-foreground">App: v{versions?.app || appVersion}</span>
-                <span>UI: v{versions?.ui || '1.0.0'}</span>
-                <span>Server: v{versions?.server || '1.0.0'}</span>
-                <span>Scraper: v{versions?.scraper || '1.0.0'}</span>
-              </div>
+              <p className="text-xs text-muted-foreground">Anikage Desktop v{appVersion}</p>
             </div>
           </div>
           <button
