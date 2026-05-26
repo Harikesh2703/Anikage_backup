@@ -1,4 +1,4 @@
-import { app, BrowserWindow, utilityProcess, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, utilityProcess, ipcMain, dialog, shell } from 'electron';
 app.name = 'Anikage';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -246,6 +246,60 @@ app.on('activate', () => {
     createWindow();
   }
 });
+// Handle folder selection for downloads
+ipcMain.handle('select-download-directory', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'Select Downloads Directory'
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+      return { success: true, path: result.filePaths[0] };
+    }
+    return { success: false, canceled: true };
+  } catch (err) {
+    console.error('Folder selection failed:', err.message);
+    return { success: false, error: err.message };
+  }
+});
+
+// Handle opening a path (video file or directory) natively
+ipcMain.handle('open-path', async (event, filePath) => {
+  try {
+    if (fs.existsSync(filePath)) {
+      await shell.openPath(filePath);
+      return { success: true };
+    }
+    // Try opening containing folder
+    const dir = path.dirname(filePath);
+    if (fs.existsSync(dir)) {
+      await shell.openPath(dir);
+      return { success: true };
+    }
+    return { success: false, error: 'Path does not exist' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Handle showing a file in its containing folder natively
+ipcMain.handle('show-item-in-folder', async (event, filePath) => {
+  try {
+    if (fs.existsSync(filePath)) {
+      shell.showItemInFolder(filePath);
+      return { success: true };
+    }
+    const dir = path.dirname(filePath);
+    if (fs.existsSync(dir)) {
+      await shell.openPath(dir);
+      return { success: true };
+    }
+    return { success: false, error: 'Path does not exist' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 // Handle Factory Reset (Wipe everything except database)
 ipcMain.handle('factory-reset', async () => {
   try {

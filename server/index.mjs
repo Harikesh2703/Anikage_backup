@@ -5,6 +5,13 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import os from 'os';
 import { db_helper } from './db.mjs';
+import { 
+  downloadEvents, 
+  processQueue, 
+  pauseDownload, 
+  cancelDownload, 
+  getFFmpegPath 
+} from './downloader.mjs';
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -35,7 +42,7 @@ app.get('/api/ping', (req, res) => res.json({ status: 'ok' }));
 
 // Lazy-load allanime API
 let _api = null;
-function getApi() {
+export function getApi() {
   if (!_api) {
     const userDataPath = process.env.USER_DATA_PATH || join(os.homedir(), '.config', 'Anikage');
     const patchPath = join(userDataPath, 'patches', 'allanime.js');
@@ -60,6 +67,7 @@ function getApi() {
  * Probe video metadata for resolution
  */
 async function probeMetadata(url) {
+  url = url.startsWith('//') ? 'https:' + url : url;
   // Check cache first
   try {
     const cached = await db_helper.getMetadata(url);
@@ -69,9 +77,8 @@ async function probeMetadata(url) {
   }
 
   return new Promise((resolve) => {
-    // ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0
-    // We add a 2s timeout to prevent hanging
-    const cmd = `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${url}"`;
+    const headersStr = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0\r\nReferer: https://allmanga.to\r\n";
+    const cmd = `ffprobe -headers "${headersStr}" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${url}"`;
     const timeout = setTimeout(() => {
       resolve('unknown');
     }, 2000);
@@ -348,6 +355,186 @@ app.get('/api/watch/:showId/:episode', async (req, res) => {
     res.redirect(targetUrl);
   } catch (err) {
     res.status(500).send('Error launching stream. Check terminal.');
+  }
+});
+
+// --- DOWNLOADS ROUTES ---
+
+// GET /api/downloads - List all downloads
+app.get('/api/downloads', async (req, res) => {
+  try {
+    const downloads = await db_helper.getAllDownloads();
+    res.json(downloads);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/downloads/enqueue - Add task to download queue
+app.post('/api/downloads/enqueue', async (req, res) => {
+  try {
+    const { animeId, animeTitle, coverImage, episodeNumber, quality, streamUrl } = req.body;
+    if (!animeId || !animeTitle || !episodeNumber || !quality) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+    const id = `${animeId}-${episodeNumber}-${quality}`;
+    const task = {
+      id,
+      animeId,
+      animeTitle,
+      coverImage,
+      episodeNumber,
+      quality,
+      streamUrl: streamUrl || null,
+      status: 'QUEUED',
+      progress: 0,
+      downloadedSegments: 0,
+      totalSegments: 0
+    };
+    await db_helper.saveDownloadTask(task);
+    res.json({ success: true, task });
+    
+    // Process queue in background
+    processQueue();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/downloads/pause - Pause download task
+app.post('/api/downloads/pause', async (req, res) => {
+  try {
+    const { id } = req.body;
+    await pauseDownload(id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/downloads/resume - Resume download task
+app.post('/api/downloads/resume', async (req, res) => {
+  try {
+    const { id } = req.body;
+    const task = await db_helper.getDownloadTask(id);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    
+    task.status = 'QUEUED';
+    await db_helper.saveDownloadTask(task);
+    res.json({ success: true });
+    
+    processQueue();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/downloads/cancel - Cancel download task
+app.post('/api/downloads/cancel', async (req, res) => {
+  try {
+    const { id } = req.body;
+    await cancelDownload(id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/downloads/:id - Delete download task metadata
+app.delete('/api/downloads/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db_helper.deleteDownloadTask(id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/settings/download-path - Get custom download directory
+app.get('/api/settings/download-path', async (req, res) => {
+  try {
+    const customPath = await db_helper.getSetting('download_path');
+    res.json({ path: customPath || join(os.homedir(), 'Downloads') });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/settings/download-path - Set custom download directory
+app.post('/api/settings/download-path', async (req, res) => {
+  try {
+    const { path: newPath } = req.body;
+    await db_helper.saveSetting('download_path', newPath);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/settings/ffmpeg-path - Get custom FFmpeg path
+app.get('/api/settings/ffmpeg-path', async (req, res) => {
+  try {
+    const customPath = await db_helper.getSetting('ffmpeg_path');
+    const actualPath = await getFFmpegPath();
+    res.json({ customPath: customPath || '', actualPath: actualPath || '' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/settings/ffmpeg-path - Set custom FFmpeg path
+app.post('/api/settings/ffmpeg-path', async (req, res) => {
+  try {
+    const { path: newPath } = req.body;
+    await db_helper.saveSetting('ffmpeg_path', newPath);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SSE Event Stream for download progress and state updates
+const sseClients = new Set();
+
+app.get('/api/downloads/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  
+  sseClients.add(res);
+  
+  // Keep connection alive with simple comments
+  const keepAlive = setInterval(() => {
+    res.write(': keepalive\n\n');
+  }, 30000);
+  
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    sseClients.delete(res);
+  });
+});
+
+// Listen to downloader events and broadcast to all connected web clients
+downloadEvents.on('progress', (data) => {
+  const payload = JSON.stringify({ type: 'progress', data });
+  for (const client of sseClients) {
+    client.write(`data: ${payload}\n\n`);
+  }
+});
+
+downloadEvents.on('state-change', (data) => {
+  const payload = JSON.stringify({ type: 'state-change', data });
+  for (const client of sseClients) {
+    client.write(`data: ${payload}\n\n`);
+  }
+});
+
+downloadEvents.on('batch-notification', (data) => {
+  const payload = JSON.stringify({ type: 'batch-notification', data });
+  for (const client of sseClients) {
+    client.write(`data: ${payload}\n\n`);
   }
 });
 

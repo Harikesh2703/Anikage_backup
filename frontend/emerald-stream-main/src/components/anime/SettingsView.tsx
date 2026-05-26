@@ -1,4 +1,4 @@
-import { Settings, RefreshCcw, ShieldAlert, Database, FileText, Info, Download, AlertCircle } from 'lucide-react';
+import { Settings, RefreshCcw, ShieldAlert, Database, FileText, Info, Download, AlertCircle, FolderOpen } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { AppNotification } from './NotificationsView';
 import { api } from '../../lib/api';
@@ -12,6 +12,8 @@ export function SettingsView({ notifications }: SettingsViewProps) {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [pendingUpdates, setPendingUpdates] = useState(0);
   const [versions, setVersions] = useState<any>(null);
+  const [downloadPath, setDownloadPath] = useState('');
+
 
   useEffect(() => {
     // Check if there are any pending updates
@@ -21,12 +23,31 @@ export function SettingsView({ notifications }: SettingsViewProps) {
 
     // Fetch local versions
     api.getLocalVersions().then(v => setVersions(v)).catch(console.error);
+
+    // Fetch download directory
+    api.getDownloadPath().then(res => setDownloadPath(res.path)).catch(console.error);
+
+
   }, [notifications]);
 
   const handleNavigateToUpdates = () => {
     // Navigate to notifications tab
     window.location.hash = '#notifications';
   };
+
+  const handleChangeDirectory = async () => {
+    const res = await api.selectDirectory();
+    if (res.success && res.path) {
+      try {
+        await api.saveDownloadPath(res.path);
+        setDownloadPath(res.path);
+      } catch (err) {
+        console.error('Failed to save download directory:', err);
+      }
+    }
+  };
+
+
 
   const handleFactoryReset = async () => {
     const confirmed = window.confirm(
@@ -186,6 +207,46 @@ export function SettingsView({ notifications }: SettingsViewProps) {
                 Restore from File
               </button>
             </div>
+          </div>
+        </section>
+
+        {/* Downloads Configuration Section */}
+        <section className="bg-card border border-border rounded-3xl overflow-hidden shadow-[var(--shadow-card)]">
+          <div className="p-6 border-b border-border bg-muted/30">
+            <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+              <Download className="w-5 h-5 text-primary" />
+              Offline Downloads Settings
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">Configure your local download storage and video components.</p>
+          </div>
+          
+          <div className="p-8 space-y-6">
+            {/* Storage Directory Selector */}
+            <div className="space-y-2">
+              <h3 className="font-bold text-foreground flex items-center gap-2">
+                <FolderOpen className="w-4 h-4 text-primary" />
+                Download Directory
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                All episodes will be downloaded to this folder, organized inside subfolders named after the anime.
+              </p>
+              <div className="flex gap-3 mt-3">
+                <input
+                  type="text"
+                  readOnly
+                  value={downloadPath || 'Loading...'}
+                  className="flex-1 bg-muted border border-border rounded-xl px-4 py-2.5 text-sm text-muted-foreground focus:outline-none"
+                />
+                <button
+                  onClick={handleChangeDirectory}
+                  className="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/45 px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all"
+                >
+                  Select Folder
+                </button>
+              </div>
+            </div>
+
+
           </div>
         </section>
 

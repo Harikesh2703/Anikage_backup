@@ -45,6 +45,35 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS downloads (
+      id TEXT PRIMARY KEY,
+      anime_id TEXT NOT NULL,
+      anime_title TEXT NOT NULL,
+      cover_image TEXT,
+      episode_number TEXT NOT NULL,
+      quality TEXT NOT NULL,
+      status TEXT NOT NULL,
+      progress INTEGER DEFAULT 0,
+      downloaded_segments INTEGER DEFAULT 0,
+      total_segments INTEGER DEFAULT 0,
+      local_path TEXT,
+      temp_dir TEXT,
+      error_message TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT,
+      stream_url TEXT
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+  db.run(`ALTER TABLE downloads ADD COLUMN stream_url TEXT`, (err) => {
+    // Ignore error if column already exists
+  });
 });
 
 export const db_helper = {
@@ -109,6 +138,16 @@ export const db_helper = {
             }
           });
         });
+      });
+    });
+  },
+
+  deleteLinkCacheEntry: (key) => {
+    return new Promise((resolve, reject) => {
+      const sql = `DELETE FROM link_cache WHERE key = ?`;
+      db.run(sql, [key], (err) => {
+        if (err) reject(err);
+        else resolve();
       });
     });
   },
@@ -180,6 +219,153 @@ export const db_helper = {
           title: row.title,
           tags: row.genres ? row.genres.split(',') : [],
         })));
+      });
+    });
+  },
+
+  // Downloads Management
+  saveDownloadTask: (task) => {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        INSERT INTO downloads (id, anime_id, anime_title, cover_image, episode_number, quality, status, progress, downloaded_segments, total_segments, local_path, temp_dir, error_message, created_at, completed_at, stream_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status = excluded.status,
+          progress = excluded.progress,
+          downloaded_segments = excluded.downloaded_segments,
+          total_segments = excluded.total_segments,
+          local_path = excluded.local_path,
+          temp_dir = excluded.temp_dir,
+          error_message = excluded.error_message,
+          completed_at = excluded.completed_at,
+          stream_url = excluded.stream_url
+      `;
+      db.run(sql, [
+        task.id, task.animeId, task.animeTitle, task.coverImage, task.episodeNumber, task.quality,
+        task.status, task.progress || 0, task.downloadedSegments || 0, task.totalSegments || 0,
+        task.localPath || null, task.tempDir || null, task.errorMessage || null, task.completedAt || null,
+        task.streamUrl || null
+      ], function(err) {
+        if (err) reject(err);
+        else resolve(this.lastID);
+      });
+    });
+  },
+
+  getDownloadTask: (id) => {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT * FROM downloads WHERE id = ?`;
+      db.get(sql, [id], (err, row) => {
+        if (err) reject(err);
+        else resolve(row ? {
+          id: row.id,
+          animeId: row.anime_id,
+          animeTitle: row.anime_title,
+          coverImage: row.cover_image,
+          episodeNumber: row.episode_number,
+          quality: row.quality,
+          status: row.status,
+          progress: row.progress,
+          downloadedSegments: row.downloaded_segments,
+          totalSegments: row.total_segments,
+          localPath: row.local_path,
+          tempDir: row.temp_dir,
+          errorMessage: row.error_message,
+          createdAt: row.created_at,
+          completedAt: row.completed_at,
+          streamUrl: row.stream_url
+        } : null);
+      });
+    });
+  },
+
+  getAllDownloads: () => {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT * FROM downloads ORDER BY created_at DESC`;
+      db.all(sql, [], (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows.map(row => ({
+          id: row.id,
+          animeId: row.anime_id,
+          animeTitle: row.anime_title,
+          coverImage: row.cover_image,
+          episodeNumber: row.episode_number,
+          quality: row.quality,
+          status: row.status,
+          progress: row.progress,
+          downloadedSegments: row.downloaded_segments,
+          totalSegments: row.total_segments,
+          localPath: row.local_path,
+          tempDir: row.temp_dir,
+          errorMessage: row.error_message,
+          createdAt: row.created_at,
+          completedAt: row.completed_at,
+          streamUrl: row.stream_url
+        })));
+      });
+    });
+  },
+
+  updateDownloadProgress: (id, progress, downloadedSegments, totalSegments) => {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        UPDATE downloads 
+        SET progress = ?, downloaded_segments = ?, total_segments = ?
+        WHERE id = ?
+      `;
+      db.run(sql, [progress, downloadedSegments, totalSegments, id], function(err) {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  },
+
+  updateDownloadStatus: (id, status, errorMsg = null, localPath = null) => {
+    return new Promise((resolve, reject) => {
+      const completedAt = status === 'COMPLETED' ? new Date().toISOString() : null;
+      const sql = `
+        UPDATE downloads 
+        SET status = ?, error_message = ?, local_path = COALESCE(?, local_path), completed_at = COALESCE(?, completed_at)
+        WHERE id = ?
+      `;
+      db.run(sql, [status, errorMsg, localPath, completedAt, id], function(err) {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  },
+
+  deleteDownloadTask: (id) => {
+    return new Promise((resolve, reject) => {
+      const sql = `DELETE FROM downloads WHERE id = ?`;
+      db.run(sql, [id], function(err) {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  },
+
+  // App Settings Management
+  getSetting: (key, defaultValue = null) => {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT value FROM app_settings WHERE key = ?`;
+      db.get(sql, [key], (err, row) => {
+        if (err) reject(err);
+        else resolve(row ? row.value : defaultValue);
+      });
+    });
+  },
+
+  saveSetting: (key, value) => {
+    return new Promise((resolve, reject) => {
+      const sql = `
+        INSERT INTO app_settings (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `;
+      db.run(sql, [key, value], function(err) {
+        if (err) reject(err);
+        else resolve();
       });
     });
   }

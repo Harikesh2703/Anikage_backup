@@ -150,3 +150,37 @@
     color: var(--color-foreground);
   }
 }
+
+@keyframes download-bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
+.animate-download-bounce {
+  animation: download-bounce 1s infinite ease-in-out;
+}
+
+@keyframes download-arrow-slide {
+  0% {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+  50% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(4px);
+    opacity: 0;
+  }
+}
+
+.animate-download-arrow {
+  animation: download-arrow-slide 1.2s infinite linear;
+}
+
+

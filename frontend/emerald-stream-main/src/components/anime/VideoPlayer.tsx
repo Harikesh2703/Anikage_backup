@@ -3,11 +3,14 @@ import Hls from 'hls.js';
 import {
   X, Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipBack, SkipForward, Loader2, ChevronLeft, ChevronRight,
-  RotateCcw, ShieldAlert, Server
+  RotateCcw, ShieldAlert, Server, Download, Check
 } from 'lucide-react';
+import { api } from '@/lib/api';
 import type { StreamSource } from '@/lib/api';
 
 interface VideoPlayerProps {
+  animeId: string;
+  coverImage: string;
   streamUrl: string;
   title: string;
   episode: string;
@@ -21,13 +24,14 @@ interface VideoPlayerProps {
   hasMoreSources: boolean;
   loading: boolean;
   error: string | null;
+  showToast?: (message: string, type?: 'info' | 'success' | 'error') => void;
 }
 
 export function VideoPlayer({
-  streamUrl, title, episode, totalEpisodes,
+  animeId, coverImage, streamUrl, title, episode, totalEpisodes,
   onClose, onEpisodeChange, onTryNextSource,
   onSourceChange, currentSourceIndex, allSources,
-  hasMoreSources, loading, error
+  hasMoreSources, loading, error, showToast
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -46,6 +50,35 @@ export function VideoPlayer({
   const [availableQualities, setAvailableQualities] = useState<string[]>([]);
   const [currentQuality, setCurrentQuality] = useState('Auto');
   const [showSourceGuide, setShowSourceGuide] = useState(true);
+  const [downloadState, setDownloadState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [showLocalPopup, setShowLocalPopup] = useState(false);
+
+  const handleDownloadEpisode = async () => {
+    setDownloadState('loading');
+    setShowLocalPopup(true);
+    setTimeout(() => setShowLocalPopup(false), 3500);
+
+    if (showToast) {
+      showToast('Download started. See downloads tab to view progress.', 'info');
+    }
+    try {
+      const q = currentQuality === 'Auto' ? (allSources[currentSourceIndex]?.quality || '1080p') : currentQuality;
+      const currentUrl = allSources[currentSourceIndex]?.url;
+      const res = await api.enqueueDownload(animeId, title, coverImage, episode, q, currentUrl);
+      if (res.success) {
+        setDownloadState('success');
+        setTimeout(() => setDownloadState('idle'), 3000);
+      } else {
+        setDownloadState('error');
+        if (showToast) showToast('Download failed to start.', 'error');
+        setTimeout(() => setDownloadState('idle'), 3000);
+      }
+    } catch (err) {
+      setDownloadState('error');
+      if (showToast) showToast('Failed to queue download.', 'error');
+      setTimeout(() => setDownloadState('idle'), 3000);
+    }
+  };
 
   const currentEpIndex = totalEpisodes.indexOf(episode);
   const hasPrev = currentEpIndex > 0;
@@ -330,9 +363,57 @@ export function VideoPlayer({
           {/* Next episode */}
           <button onClick={() => hasNext && onEpisodeChange(totalEpisodes[currentEpIndex + 1])}
             disabled={!hasNext}
-            className="text-white/70 hover:text-white disabled:opacity-30 transition-colors">
+            className="text-white/70 hover:text-white disabled:opacity-30 transition-colors"
+            title="Next Episode"
+          >
             <SkipForward className="w-5 h-5" />
           </button>
+
+          {/* Download Episode Button */}
+          <div className="relative flex items-center justify-center">
+            <button 
+              onClick={handleDownloadEpisode}
+              disabled={downloadState === 'loading'}
+              className={`transition-all p-1 rounded-full ${
+                downloadState === 'success' ? 'text-green-400' :
+                downloadState === 'error' ? 'text-red-400' :
+                downloadState === 'loading' ? 'text-primary' :
+                'text-white/70 hover:text-primary'
+              }`}
+              title="Download Current Episode"
+            >
+              {downloadState === 'success' ? (
+                <Check className="w-5 h-5 text-emerald-400" />
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-5 h-5"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <g className={downloadState === 'loading' ? 'animate-download-arrow' : ''}>
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" x2="12" y1="15" y2="3" />
+                  </g>
+                </svg>
+              )}
+            </button>
+
+            {/* Local Popup Bubble */}
+            {showLocalPopup && (
+              <div className="absolute bottom-10 bg-slate-900 border border-slate-700/50 text-white text-xs font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap shadow-xl animate-in fade-in zoom-in-95 duration-200 pointer-events-none">
+                Download started!
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
+              </div>
+            )}
+          </div>
 
           {/* Skip buttons */}
           <button onClick={() => { if (videoRef.current) videoRef.current.currentTime -= 10; }}

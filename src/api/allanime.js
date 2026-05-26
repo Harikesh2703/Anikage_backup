@@ -177,7 +177,21 @@ class AllAnimeAPI {
    */
   async getVideoLinks(providerId, providerName) {
     try {
+      if (!providerId || providerId.includes('i3!') || providerId.includes('+++') || providerId.length < 5) {
+        console.log(`[SCRAPER] Ignoring invalid providerId: ${providerId}`);
+        return [];
+      }
+
+      if (providerId.startsWith('//')) {
+        providerId = 'https:' + providerId;
+      }
+
       if (!providerId.includes('apivtwo')) {
+        const isValidUrl = providerId.includes('.') || providerId.includes('/');
+        if (!isValidUrl) {
+          console.log(`[SCRAPER] Ignoring invalid providerId: ${providerId}`);
+          return [];
+        }
         return [{
           quality: 'unknown',
           url: providerId.startsWith('http') ? providerId : `https://${providerId}`,
@@ -198,9 +212,13 @@ class AllAnimeAPI {
         // Extract links from JSON-like string
         const linkMatches = data.matchAll(/"link":"([^"]*)".*?"resolutionStr":"([^"]*)"/g);
         for (const match of linkMatches) {
+          let linkUrl = match[1];
+          if (linkUrl.startsWith('//')) {
+            linkUrl = 'https:' + linkUrl;
+          }
           links.push({
             quality: match[2],
-            url: match[1],
+            url: linkUrl,
             provider: providerName
           });
         }
@@ -208,9 +226,13 @@ class AllAnimeAPI {
         // Extract m3u8 links
         const m3u8Matches = data.matchAll(/"hls","url":"([^"]*)".*?"hardsub_lang":"en-US"/g);
         for (const match of m3u8Matches) {
+          let m3u8Url = match[1];
+          if (m3u8Url.startsWith('//')) {
+            m3u8Url = 'https:' + m3u8Url;
+          }
           links.push({
             quality: 'hls',
-            url: match[1],
+            url: m3u8Url,
             provider: providerName
           });
         }
@@ -234,7 +256,9 @@ class AllAnimeAPI {
     
     const results = await Promise.all(
       providerEntries.map(async ([name, sourceUrl]) => {
-        const decodedId = sourceUrl.startsWith('http') ? sourceUrl : helpers.decodeProviderId(sourceUrl);
+        const decodedId = (sourceUrl.startsWith('http') || sourceUrl.startsWith('//')) 
+          ? sourceUrl 
+          : helpers.decodeProviderId(sourceUrl);
         return this.getVideoLinks(decodedId, name);
       })
     );

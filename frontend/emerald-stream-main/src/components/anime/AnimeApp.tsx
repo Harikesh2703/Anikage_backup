@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { Check, ShieldAlert, Download } from 'lucide-react';
 import { AnalyticsView } from '@/components/anime/AnalyticsView';
 import { NotificationsView, type AppNotification } from '@/components/anime/NotificationsView';
 import { SettingsView } from '@/components/anime/SettingsView';
@@ -6,12 +7,30 @@ import { HomeView } from '@/components/anime/HomeView';
 import { Navbar } from '@/components/anime/Navbar';
 import { EpisodeModal } from '@/components/anime/EpisodeModal';
 import { VideoPlayer } from '@/components/anime/VideoPlayer';
+import { DownloadsView } from '@/components/anime/DownloadsView';
 import type { AppView } from '@/components/anime/types';
 import type { AnimeItem, StreamSource } from '@/lib/api';
 import { api } from '@/lib/api';
 
+interface ToastItem {
+  id: string;
+  message: string;
+  type: 'info' | 'success' | 'error';
+}
+
 export function AnimeApp() {
   const [view, setView] = useState<AppView>('home');
+  
+  // Toast notifications state
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const showToast = useCallback((message: string, type: 'info' | 'success' | 'error' = 'info') => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4500);
+  }, []);
 
   // The anime whose episode list modal is open
   const [selectedAnime, setSelectedAnime] = useState<AnimeItem | null>(null);
@@ -388,18 +407,39 @@ export function AnimeApp() {
         <SettingsView notifications={notifications} />
       )}
 
+      {view === 'downloads' && (
+        <DownloadsView 
+          onAddNotification={(notif) => {
+            setNotifications(prev => [
+              {
+                id: `download-notif-${Date.now()}`,
+                type: notif.type,
+                title: notif.title,
+                message: notif.message,
+                timestamp: new Date(),
+                isRead: false
+              },
+              ...prev
+            ]);
+          }}
+        />
+      )}
+
       {/* Episode picker modal */}
       {selectedAnime && (
         <EpisodeModal
           anime={selectedAnime}
           onClose={() => setSelectedAnime(null)}
           onWatch={watchEpisode}
+          showToast={showToast}
         />
       )}
 
       {/* Fullscreen video player */}
       {playerOpen && watchingAnime && (
         <VideoPlayer
+          animeId={watchingAnime.id}
+          coverImage={watchingAnime.coverImage}
           streamUrl={streamUrl}
           title={watchingAnime.title}
           episode={currentEpisode}
@@ -413,8 +453,28 @@ export function AnimeApp() {
           currentSourceIndex={sourceIndex}
           allSources={sources}
           hasMoreSources={sourceIndex < sources.length - 1}
+          showToast={showToast}
         />
       )}
+
+      {/* Toast container */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 pointer-events-none max-w-sm w-full px-4 sm:px-0">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`pointer-events-auto flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl border transition-all duration-300 transform translate-y-0 animate-in fade-in slide-in-from-bottom-4 ${
+              t.type === 'success' ? 'bg-emerald-950/90 border-emerald-500/30 text-emerald-300' :
+              t.type === 'error' ? 'bg-red-950/90 border-red-500/30 text-red-300' :
+              'bg-slate-900/90 border-slate-700/30 text-slate-300'
+            }`}
+          >
+            {t.type === 'success' && <Check className="w-5 h-5 text-emerald-400 shrink-0" />}
+            {t.type === 'error' && <ShieldAlert className="w-5 h-5 text-red-400 shrink-0" />}
+            {t.type === 'info' && <Download className="w-5 h-5 text-primary shrink-0 animate-download-bounce" />}
+            <span className="text-sm font-semibold leading-snug">{t.message}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

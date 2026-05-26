@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Play, Loader2, ChevronLeft } from 'lucide-react';
+import { X, Play, Loader2, Download, CheckSquare, Square, Check } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { AnimeItem } from '@/lib/api';
 
@@ -7,12 +7,19 @@ interface EpisodeModalProps {
   anime: AnimeItem;
   onClose: () => void;
   onWatch: (episode: string, episodes: string[]) => void;
+  showToast?: (message: string, type?: 'info' | 'success' | 'error') => void;
 }
 
-export function EpisodeModal({ anime, onClose, onWatch }: EpisodeModalProps) {
+export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModalProps) {
   const [episodes, setEpisodes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Download mode states
+  const [isDownloadMode, setIsDownloadMode] = useState(false);
+  const [selectedEpisodes, setSelectedEpisodes] = useState<Set<string>>(new Set());
+  const [downloadQuality, setDownloadQuality] = useState('1080p');
+  const [enqueueing, setEnqueueing] = useState(false);
 
   useEffect(() => {
     api.episodes(anime.id)
@@ -20,6 +27,64 @@ export function EpisodeModal({ anime, onClose, onWatch }: EpisodeModalProps) {
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [anime.id]);
+
+  const toggleEpisodeSelection = (ep: string) => {
+    const next = new Set(selectedEpisodes);
+    if (next.has(ep)) {
+      next.delete(ep);
+    } else {
+      next.add(ep);
+    }
+    setSelectedEpisodes(next);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedEpisodes.size === episodes.length) {
+      setSelectedEpisodes(new Set());
+    } else {
+      setSelectedEpisodes(new Set(episodes));
+    }
+  };
+
+  const handleStartDownloads = async () => {
+    if (selectedEpisodes.size === 0) return;
+    setEnqueueing(true);
+    try {
+      const selectedList = Array.from(selectedEpisodes).sort((a, b) => {
+        // Try to sort numerically if possible
+        const numA = parseFloat(a);
+        const numB = parseFloat(b);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return a.localeCompare(b);
+      });
+
+      for (const ep of selectedList) {
+        await api.enqueueDownload(
+          anime.id,
+          anime.title,
+          anime.coverImage,
+          ep,
+          downloadQuality
+        );
+      }
+
+      if (showToast) {
+        showToast(`Download started. See downloads tab to view progress.`, 'success');
+      } else {
+        alert(`Successfully queued ${selectedEpisodes.size} episode(s) for download!`);
+      }
+      setIsDownloadMode(false);
+      setSelectedEpisodes(new Set());
+    } catch (e: any) {
+      if (showToast) {
+        showToast(`Error queueing downloads: ${e.message}`, 'error');
+      } else {
+        alert(`Error queueing downloads: ${e.message}`);
+      }
+    } finally {
+      setEnqueueing(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center"
@@ -29,36 +94,54 @@ export function EpisodeModal({ anime, onClose, onWatch }: EpisodeModalProps) {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative z-10 w-full sm:max-w-2xl max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden"
+      <div className="relative z-10 w-full sm:max-w-2xl max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden shadow-2xl transition-all duration-300"
         style={{ background: 'var(--color-card)', border: '1px solid rgba(255,255,255,0.08)' }}>
 
         {/* Header */}
-        <div className="flex items-start gap-4 p-5"
+        <div className="flex items-start gap-4 p-5 border-b border-border/40"
           style={{ background: 'linear-gradient(135deg, rgba(var(--primary-rgb),0.15) 0%, transparent 60%)' }}>
           <img
             src={anime.coverImage}
             alt={anime.title}
-            className="w-16 h-24 object-cover rounded-lg shrink-0 shadow-lg"
+            className="w-16 h-24 object-cover rounded-lg shrink-0 shadow-lg border border-border/20"
             onError={(e) => { (e.target as HTMLImageElement).src = `https://picsum.photos/seed/${anime.id}/160/240`; }}
           />
           <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-bold text-foreground truncate">{anime.title}</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">
+            <h2 className="text-xl font-black text-foreground truncate leading-tight">{anime.title}</h2>
+            <p className="text-sm text-muted-foreground mt-1 truncate">
               {anime.tags.slice(0, 3).join(' • ')}
             </p>
-            {!loading && !error && (
-              <p className="text-xs text-primary mt-2 font-medium">{episodes.length} episodes</p>
-            )}
-            {/* Quick-start button */}
-            {!loading && !error && episodes.length > 0 && (
-              <button
-                onClick={() => onWatch(episodes[0], episodes)}
-                className="mt-3 flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold text-primary-foreground transition-all hover:scale-105 active:scale-95"
-                style={{ background: 'var(--color-primary)' }}>
-                <Play className="w-3.5 h-3.5 fill-current" />
-                Watch from Ep 1
-              </button>
-            )}
+            
+            <div className="flex items-center gap-3 mt-3.5">
+              {/* Watch Ep 1 */}
+              {!loading && !error && episodes.length > 0 && !isDownloadMode && (
+                <button
+                  onClick={() => onWatch(episodes[0], episodes)}
+                  className="flex items-center gap-1.5 px-4.5 py-1.5 rounded-full text-xs font-bold text-primary-foreground transition-all hover:scale-105 active:scale-95"
+                  style={{ background: 'var(--color-primary)' }}>
+                  <Play className="w-3 h-3 fill-current" />
+                  Watch Ep 1
+                </button>
+              )}
+
+              {/* Download Mode Toggle */}
+              {!loading && !error && episodes.length > 0 && (
+                <button
+                  onClick={() => {
+                    setIsDownloadMode(!isDownloadMode);
+                    setSelectedEpisodes(new Set());
+                  }}
+                  className={`flex items-center gap-1.5 px-4.5 py-1.5 rounded-full text-xs font-bold border transition-all hover:scale-105 active:scale-95 ${
+                    isDownloadMode 
+                      ? 'bg-primary/20 text-primary border-primary/30' 
+                      : 'bg-card hover:bg-card/90 border-border text-foreground'
+                  }`}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {isDownloadMode ? 'Cancel Selection' : 'Batch Download'}
+                </button>
+              )}
+            </div>
           </div>
           <button onClick={onClose}
             className="w-8 h-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors shrink-0">
@@ -66,43 +149,108 @@ export function EpisodeModal({ anime, onClose, onWatch }: EpisodeModalProps) {
           </button>
         </div>
 
+        {/* Download Mode Option Bar */}
+        {isDownloadMode && !loading && !error && (
+          <div className="px-5 py-3.5 bg-muted/40 border-b border-border/40 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4">
+              {/* Select All */}
+              <button 
+                onClick={handleSelectAll}
+                className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-all"
+              >
+                {selectedEpisodes.size === episodes.length ? (
+                  <CheckSquare className="w-4 h-4 text-primary" />
+                ) : (
+                  <Square className="w-4 h-4" />
+                )}
+                Select All
+              </button>
+
+              {/* Quality Dropdown */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground font-medium">Quality:</span>
+                <select
+                  value={downloadQuality}
+                  onChange={(e) => setDownloadQuality(e.target.value)}
+                  className="bg-card border border-border text-foreground text-xs font-bold rounded-lg px-2 py-1 focus:outline-none focus:border-primary/50 cursor-pointer"
+                >
+                  <option value="1080p">1080p (Full HD)</option>
+                  <option value="720p">720p (HD)</option>
+                  <option value="480p">480p (SD)</option>
+                  <option value="360p">360p (Low)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Execute Download */}
+            <button
+              onClick={handleStartDownloads}
+              disabled={selectedEpisodes.size === 0 || enqueueing}
+              className="flex items-center gap-1.5 px-5 py-2 bg-primary hover:bg-primary/95 text-primary-foreground font-bold text-xs uppercase tracking-wider rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_2px_10px_rgba(var(--primary-rgb),0.2)]"
+            >
+              {enqueueing ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Queueing...
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5" /> Queue Downloads ({selectedEpisodes.size})
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
         {/* Episode grid */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-5">
           {loading && (
-            <div className="flex items-center justify-center py-10 gap-3">
-              <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              <span className="text-muted-foreground text-sm">Loading episodes…</span>
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <span className="text-muted-foreground text-sm font-medium">Fetching episodes...</span>
             </div>
           )}
 
           {error && (
-            <div className="text-center py-10">
-              <p className="text-red-400 text-sm font-medium">Failed to load episodes</p>
-              <p className="text-muted-foreground text-xs mt-1">{error}</p>
+            <div className="text-center py-16 bg-red-500/5 rounded-2xl border border-red-500/10">
+              <p className="text-red-400 text-sm font-bold">Failed to load episodes</p>
+              <p className="text-muted-foreground text-xs mt-1.5 max-w-sm mx-auto">{error}</p>
             </div>
           )}
 
           {!loading && !error && episodes.length === 0 && (
-            <p className="text-center text-muted-foreground text-sm py-10">No episodes found.</p>
+            <p className="text-center text-muted-foreground text-sm py-16">No episodes found.</p>
           )}
 
           {!loading && !error && episodes.length > 0 && (
-            <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-2">
-              {episodes.map((ep) => (
-                <button
-                  key={ep}
-                  onClick={() => onWatch(ep, episodes)}
-                  className="aspect-square rounded-lg text-sm font-medium transition-all hover:scale-110 active:scale-95 hover:ring-2 hover:ring-primary/60"
-                  style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    color: 'var(--color-foreground)',
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(var(--primary-rgb),0.3)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
-                >
-                  {ep}
-                </button>
-              ))}
+            <div className="grid grid-cols-5 sm:grid-cols-7 md:grid-cols-9 gap-2.5">
+              {episodes.map((ep) => {
+                const isSelected = selectedEpisodes.has(ep);
+                return (
+                  <button
+                    key={ep}
+                    onClick={() => {
+                      if (isDownloadMode) {
+                        toggleEpisodeSelection(ep);
+                      } else {
+                        onWatch(ep, episodes);
+                      }
+                    }}
+                    className={`aspect-square rounded-xl text-sm font-bold transition-all relative overflow-hidden flex items-center justify-center border hover:scale-105 active:scale-95 ${
+                      isSelected
+                        ? 'bg-primary border-primary text-primary-foreground shadow-[0_0_12px_rgba(var(--primary-rgb),0.35)]'
+                        : 'bg-muted/40 hover:bg-primary/20 border-border/40 hover:border-primary/20 text-foreground'
+                    }`}
+                  >
+                    {ep}
+                    {/* Badge showing selected state */}
+                    {isDownloadMode && isSelected && (
+                      <div className="absolute top-1 right-1 bg-primary-foreground text-primary rounded-full p-0.5 shadow-sm">
+                        <Check className="w-2.5 h-2.5 stroke-[3]" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
