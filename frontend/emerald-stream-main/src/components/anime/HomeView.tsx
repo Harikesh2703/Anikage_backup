@@ -8,9 +8,10 @@ import type { AnimeItem } from '@/lib/api';
 
 interface HomeViewProps {
   onCardClick?: (anime: AnimeItem) => void;
+  onInfoClick?: (anime: AnimeItem) => void;
 }
 
-export function HomeView({ onCardClick }: HomeViewProps) {
+export function HomeView({ onCardClick, onInfoClick }: HomeViewProps) {
   const [hero, setHero] = useState<AnimeItem[]>([]);
   const [trending, setTrending] = useState<AnimeItem[]>([]);
   const [shonen, setShonen] = useState<AnimeItem[]>([]);
@@ -93,7 +94,7 @@ export function HomeView({ onCardClick }: HomeViewProps) {
         {history.length > 0 && (
           <AnimeRow title="Continue Watching" subtitle="Resume where you left off">
             {history.map((item) => (
-              <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} />
+              <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} onInfoClick={onInfoClick} />
             ))}
           </AnimeRow>
         )}

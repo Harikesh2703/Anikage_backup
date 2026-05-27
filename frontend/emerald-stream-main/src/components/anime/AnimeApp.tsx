@@ -364,7 +364,30 @@ export function AnimeApp() {
       />
 
       {view === 'home' && (
-        <HomeView onCardClick={openEpisodeModal} />
+        <HomeView
+          onCardClick={(anime) => {
+            if (anime.lastEpisode) {
+              const resumePlayback = async () => {
+                setWatchingAnime(anime);
+                setPlayerOpen(true);
+                setStreamLoading(true);
+                try {
+                  const eps = await api.episodes(anime.id);
+                  setEpisodeList(eps);
+                  const epToPlay = anime.lastEpisode || eps[0] || '1';
+                  await fetchStream(anime, epToPlay);
+                } catch (err) {
+                  setStreamError(err instanceof Error ? err.message : 'Failed to resume playback');
+                  setStreamLoading(false);
+                }
+              };
+              resumePlayback();
+            } else {
+              openEpisodeModal(anime);
+            }
+          }}
+          onInfoClick={openEpisodeModal}
+        />
       )}
       
       {view === 'analytics' && (
@@ -454,6 +477,7 @@ export function AnimeApp() {
           allSources={sources}
           hasMoreSources={sourceIndex < sources.length - 1}
           showToast={showToast}
+          initialTime={watchingAnime.lastEpisode === currentEpisode ? watchingAnime.currentTime : 0}
         />
       )}
 

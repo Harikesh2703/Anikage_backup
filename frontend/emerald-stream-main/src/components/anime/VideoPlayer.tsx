@@ -25,18 +25,25 @@ interface VideoPlayerProps {
   loading: boolean;
   error: string | null;
   showToast?: (message: string, type?: 'info' | 'success' | 'error') => void;
+  initialTime?: number;
 }
 
 export function VideoPlayer({
   animeId, coverImage, streamUrl, title, episode, totalEpisodes,
   onClose, onEpisodeChange, onTryNextSource,
   onSourceChange, currentSourceIndex, allSources,
-  hasMoreSources, loading, error, showToast
+  hasMoreSources, loading, error, showToast, initialTime = 0
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialTimeRef = useRef(initialTime);
+
+  // Sync ref when stream or episode changes
+  useEffect(() => {
+    initialTimeRef.current = initialTime;
+  }, [streamUrl, episode, initialTime]);
 
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -136,6 +143,13 @@ export function VideoPlayer({
     const onDuration = () => setDuration(video.duration);
     const onWaiting = () => setBuffering(true);
     const onCanPlay = () => setBuffering(false);
+    const onLoadedMetadata = () => {
+      setDuration(video.duration);
+      if (initialTimeRef.current > 0) {
+        video.currentTime = initialTimeRef.current;
+        initialTimeRef.current = 0; // only seek once
+      }
+    };
     const onError = () => {
       console.error('[Video Error] Playback failed, trying next source...');
       if (hasMoreSources) onTryNextSource();
@@ -144,6 +158,7 @@ export function VideoPlayer({
     video.addEventListener('pause', onPause);
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('durationchange', onDuration);
+    video.addEventListener('loadedmetadata', onLoadedMetadata);
     video.addEventListener('waiting', onWaiting);
     video.addEventListener('canplay', onCanPlay);
     video.addEventListener('error', onError);
@@ -152,6 +167,7 @@ export function VideoPlayer({
       video.removeEventListener('pause', onPause);
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('durationchange', onDuration);
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
       video.removeEventListener('waiting', onWaiting);
       video.removeEventListener('canplay', onCanPlay);
       video.removeEventListener('error', onError);
@@ -190,6 +206,69 @@ export function VideoPlayer({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [playing]);
+
+  // Save progress effect
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || isIframe || loading || error) return;
+
+    let lastSavedTime = video.currentTime;
+    
+    const saveProgressToDb = async () => {
+      const curTime = video.currentTime;
+      const dur = video.duration;
+      if (!dur || isNaN(dur)) return;
+
+      const percent = Math.floor((curTime / dur) * 100);
+      
+      let episodeToSave = episode;
+      let percentToSave = percent;
+      let timeToSave = curTime;
+
+      // Netflix style: if watched >= 90%, advance to the next episode at 0%
+      if (percent >= 90) {
+        const currentEpIndex = totalEpisodes.indexOf(episode);
+        if (currentEpIndex !== -1 && currentEpIndex < totalEpisodes.length - 1) {
+          episodeToSave = totalEpisodes[currentEpIndex + 1];
+          percentToSave = 0;
+          timeToSave = 0;
+        } else {
+          percentToSave = 100;
+        }
+      }
+
+      try {
+        await api.recordHistory(
+          { id: animeId, title, coverImage, tags: [] },
+          episodeToSave,
+          percentToSave,
+          timeToSave,
+          dur
+        );
+      } catch (err) {
+        console.error('Failed to save watch progress:', err);
+      }
+    };
+
+    const interval = setInterval(() => {
+      if (playing && Math.abs(video.currentTime - lastSavedTime) >= 10) {
+        saveProgressToDb();
+        lastSavedTime = video.currentTime;
+      }
+    }, 5000);
+
+    const handlePause = () => {
+      saveProgressToDb();
+    };
+
+    video.addEventListener('pause', handlePause);
+
+    return () => {
+      clearInterval(interval);
+      video.removeEventListener('pause', handlePause);
+      saveProgressToDb(); // Save on unmount or episode changes
+    };
+  }, [playing, episode, animeId, title, coverImage, totalEpisodes, isIframe, loading, error]);
 
   const resetControlsTimer = useCallback(() => {
     setShowControls(true);

@@ -14,6 +14,7 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
   const [episodes, setEpisodes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [watchProgress, setWatchProgress] = useState<AnimeItem | null>(null);
 
   // Download mode states
   const [isDownloadMode, setIsDownloadMode] = useState(false);
@@ -22,8 +23,15 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
   const [enqueueing, setEnqueueing] = useState(false);
 
   useEffect(() => {
-    api.episodes(anime.id)
-      .then(eps => setEpisodes(eps))
+    setLoading(true);
+    Promise.all([
+      api.episodes(anime.id),
+      api.getProgress(anime.id).catch(() => null)
+    ])
+      .then(([eps, progress]) => {
+        setEpisodes(eps);
+        setWatchProgress(progress);
+      })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [anime.id]);
@@ -113,16 +121,38 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
             </p>
             
             <div className="flex items-center gap-3 mt-3.5">
-              {/* Watch Ep 1 */}
-              {!loading && !error && episodes.length > 0 && !isDownloadMode && (
-                <button
-                  onClick={() => onWatch(episodes[0], episodes)}
-                  className="flex items-center gap-1.5 px-4.5 py-1.5 rounded-full text-xs font-bold text-primary-foreground transition-all hover:scale-105 active:scale-95"
-                  style={{ background: 'var(--color-primary)' }}>
-                  <Play className="w-3 h-3 fill-current" />
-                  Watch Ep 1
-                </button>
-              )}
+              {/* Watch/Resume button */}
+              {!loading && !error && episodes.length > 0 && !isDownloadMode && (() => {
+                const savedEpisode = watchProgress?.lastEpisode;
+                const progressPercent = watchProgress?.progressPercent || 0;
+                
+                let episodeToPlay = episodes[0];
+                let isResume = false;
+                
+                if (savedEpisode && episodes.includes(savedEpisode)) {
+                  const savedEpIndex = episodes.indexOf(savedEpisode);
+                  if (progressPercent >= 90 && savedEpIndex < episodes.length - 1) {
+                    episodeToPlay = episodes[savedEpIndex + 1];
+                    isResume = false;
+                  } else {
+                    episodeToPlay = savedEpisode;
+                    isResume = true;
+                  }
+                }
+                
+                return (
+                  <button
+                    onClick={() => onWatch(episodeToPlay, episodes)}
+                    className="flex items-center gap-1.5 px-4.5 py-1.5 rounded-full text-xs font-bold text-primary-foreground transition-all hover:scale-105 active:scale-95"
+                    style={{ background: 'var(--color-primary)' }}>
+                    <Play className="w-3 h-3 fill-current" />
+                    {isResume 
+                      ? `Resume Ep ${episodeToPlay} (${progressPercent}%)` 
+                      : `Watch Ep ${episodeToPlay}`
+                    }
+                  </button>
+                );
+              })()}
 
               {/* Download Mode Toggle */}
               {!loading && !error && episodes.length > 0 && (
@@ -246,6 +276,12 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
                     {isDownloadMode && isSelected && (
                       <div className="absolute top-1 right-1 bg-primary-foreground text-primary rounded-full p-0.5 shadow-sm">
                         <Check className="w-2.5 h-2.5 stroke-[3]" />
+                      </div>
+                    )}
+                    {/* Episode watch progress bar */}
+                    {!isDownloadMode && watchProgress && watchProgress.lastEpisode === ep && watchProgress.progressPercent && watchProgress.progressPercent > 0 && (
+                      <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
+                        <div className="h-full bg-primary" style={{ width: `${watchProgress.progressPercent}%` }} />
                       </div>
                     )}
                   </button>

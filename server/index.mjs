@@ -176,12 +176,32 @@ app.get('/api/history', async (req, res) => {
   }
 });
 
+// GET /api/history/:animeId
+app.get('/api/history/:animeId', async (req, res) => {
+  try {
+    const progress = await db_helper.getProgress(req.params.animeId);
+    res.json(progress);
+  } catch (err) {
+    console.error('GET /api/history/:animeId error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/history
 app.post('/api/history', async (req, res) => {
   try {
-    const { id, title, coverImage, episode, tags } = req.body;
+    const { id, title, coverImage, episode, tags, progressPercent, currentTime, duration } = req.body;
     if (!id || !title) return res.status(400).json({ error: 'ID and Title required' });
-    await db_helper.saveProgress(id, title, coverImage, episode, tags);
+    await db_helper.saveProgress(
+      id,
+      title,
+      coverImage,
+      episode,
+      tags,
+      parseInt(progressPercent) || 0,
+      parseFloat(currentTime) || 0,
+      parseFloat(duration) || 0
+    );
     res.json({ success: true });
   } catch (err) {
     console.error('POST /api/history error:', err.message);

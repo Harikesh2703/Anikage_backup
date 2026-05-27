@@ -11,6 +11,10 @@ export interface AnimeItem {
   score?: number;
   episodes?: number;
   type?: string;
+  lastEpisode?: string;
+  progressPercent?: number;
+  currentTime?: number;
+  duration?: number;
 }
 
 export interface StreamSource {
@@ -77,13 +81,21 @@ export const api = {
       items.map(item => ({ ...item, title: normalizeTitle(item.title) }))
     ),
 
-  recordHistory: (anime: AnimeItem, episode: string) =>
+  getProgress: (animeId: string) =>
+    get<AnimeItem | null>(`/history/${animeId}`).then(item =>
+      item ? { ...item, title: normalizeTitle(item.title) } : null
+    ),
+
+  recordHistory: (anime: AnimeItem, episode: string, progressPercent: number = 0, currentTime: number = 0, duration: number = 0) =>
     post<{ success: boolean }>('/history', {
       id: anime.id,
       title: normalizeTitle(anime.title),
       coverImage: anime.coverImage,
       episode,
-      tags: anime.tags
+      tags: anime.tags,
+      progressPercent,
+      currentTime,
+      duration
     }),
 
   checkUpdates: () => {

@@ -27,9 +27,15 @@ db.serialize(() => {
       cover_image TEXT,
       last_episode TEXT,
       genres TEXT,
+      progress_percent INTEGER DEFAULT 0,
+      current_time REAL DEFAULT 0,
+      duration REAL DEFAULT 0,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  db.run(`ALTER TABLE watch_history ADD COLUMN progress_percent INTEGER DEFAULT 0`, (err) => {});
+  db.run(`ALTER TABLE watch_history ADD COLUMN current_time REAL DEFAULT 0`, (err) => {});
+  db.run(`ALTER TABLE watch_history ADD COLUMN duration REAL DEFAULT 0`, (err) => {});
   db.run(`
     CREATE TABLE IF NOT EXISTS metadata_cache (
       url TEXT PRIMARY KEY,
@@ -173,19 +179,45 @@ export const db_helper = {
     });
   },
   // Add or update history
-  saveProgress: (animeId, title, coverImage, episode, genres) => {
+  saveProgress: (animeId, title, coverImage, episode, genres, progressPercent = 0, currentTime = 0, duration = 0) => {
     return new Promise((resolve, reject) => {
       const genresStr = Array.isArray(genres) ? genres.join(',') : genres;
       const sql = `
-        INSERT INTO watch_history (anime_id, title, cover_image, last_episode, genres, updated_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO watch_history (anime_id, title, cover_image, last_episode, genres, progress_percent, current_time, duration, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(anime_id) DO UPDATE SET
           last_episode = excluded.last_episode,
+          cover_image = COALESCE(NULLIF(excluded.cover_image, ''), cover_image),
+          genres = COALESCE(NULLIF(excluded.genres, ''), genres),
+          progress_percent = excluded.progress_percent,
+          current_time = excluded.current_time,
+          duration = excluded.duration,
           updated_at = CURRENT_TIMESTAMP
       `;
-      db.run(sql, [animeId, title, coverImage, episode, genresStr], function(err) {
+      db.run(sql, [animeId, title, coverImage, episode, genresStr, progressPercent, currentTime, duration], function(err) {
         if (err) reject(err);
         else resolve(this.lastID);
+      });
+    });
+  },
+
+  // Get progress for a single anime
+  getProgress: (animeId) => {
+    return new Promise((resolve, reject) => {
+      const sql = `SELECT * FROM watch_history WHERE anime_id = ?`;
+      db.get(sql, [animeId], (err, row) => {
+        if (err) reject(err);
+        else resolve(row ? {
+          id: row.anime_id,
+          title: row.title,
+          coverImage: row.cover_image,
+          lastEpisode: row.last_episode,
+          tags: row.genres ? row.genres.split(',') : [],
+          progressPercent: row.progress_percent || 0,
+          currentTime: row.current_time || 0,
+          duration: row.duration || 0,
+          updatedAt: row.updated_at
+        } : null);
       });
     });
   },
@@ -202,6 +234,9 @@ export const db_helper = {
           coverImage: row.cover_image,
           lastEpisode: row.last_episode,
           tags: row.genres ? row.genres.split(',') : [],
+          progressPercent: row.progress_percent || 0,
+          currentTime: row.current_time || 0,
+          duration: row.duration || 0,
           updatedAt: row.updated_at
         })));
       });
