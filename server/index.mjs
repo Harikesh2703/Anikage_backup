@@ -225,24 +225,24 @@ app.get('/api/sources/consumet/:title/:episode', async (req, res) => {
     }
 
     const consumet = await import('@consumet/extensions');
-    const hianime = new consumet.ANIME.Hianime();
+    const provider = new consumet.ANIME.AnimePahe();
     
     console.log(`[STREAM] Fetching Consumet mirrors for: ${title}`);
-    const searchRes = await hianime.search(title);
+    const searchRes = await provider.search(title);
     if (!searchRes.results || searchRes.results.length === 0) return res.json({ sources: [] });
     
     const animeId = searchRes.results[0].id;
-    const info = await hianime.fetchAnimeInfo(animeId);
+    const info = await provider.fetchAnimeInfo(animeId);
     
     const ep = info.episodes.find(e => e.number === parseInt(episode));
     if (!ep) return res.json({ sources: [] });
     
-    const watchData = await hianime.fetchEpisodeSources(ep.id);
+    const watchData = await provider.fetchEpisodeSources(ep.id);
     
     const sources = watchData.sources.map(s => ({
       url: s.url,
       quality: s.quality,
-      provider: 'Consumet (Native)'
+      provider: 'Consumet (AnimePahe)'
     }));
     
     console.log(`[STREAM] Consumet found ${sources.length} sources.`);
