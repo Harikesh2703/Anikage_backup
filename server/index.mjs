@@ -212,20 +212,31 @@ app.post('/api/history', async (req, res) => {
 // Fallback to Consumet natively via @consumet/extensions
 async function fetchFromConsumet(query, episodeNumber) {
   try {
+    // Polyfill File for Node 18 compatibility with undici (used by @consumet/extensions)
+    if (!globalThis.File) {
+      class File extends Blob {
+        constructor(chunks, name, opts = {}) {
+          super(chunks, opts);
+          this.name = name;
+        }
+      }
+      globalThis.File = File;
+    }
+
     // Dynamic import to avoid breaking the server if the module is missing
     const consumet = await import('@consumet/extensions');
-    const gogoanime = new consumet.ANIME.Gogoanime();
+    const hianime = new consumet.ANIME.Hianime();
     
-    const searchRes = await gogoanime.search(query);
+    const searchRes = await hianime.search(query);
     if (!searchRes.results || searchRes.results.length === 0) return null;
     
     const animeId = searchRes.results[0].id;
-    const info = await gogoanime.fetchAnimeInfo(animeId);
+    const info = await hianime.fetchAnimeInfo(animeId);
     
     const ep = info.episodes.find(e => e.number === parseInt(episodeNumber));
     if (!ep) return null;
     
-    const watchData = await gogoanime.fetchEpisodeSources(ep.id);
+    const watchData = await hianime.fetchEpisodeSources(ep.id);
     
     return watchData.sources.map(s => ({
       url: s.url,
