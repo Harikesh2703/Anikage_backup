@@ -397,8 +397,8 @@ export function VideoPlayer({
           </div>
         )}
 
-        {/* Next Episode overlay 10s before end */}
-        {!isIframe && hasNext && duration > 0 && (duration - currentTime <= 10) && (
+        {/* Next Episode overlay 30s before end */}
+        {!isIframe && hasNext && duration > 0 && (duration - currentTime <= 30) && (
           <div className="absolute bottom-24 right-8 z-[60]">
             <button
               onClick={(e) => {
