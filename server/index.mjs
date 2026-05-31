@@ -209,34 +209,31 @@ app.post('/api/history', async (req, res) => {
   }
 });
 
-// Fallback to Consumet API if AllAnime fails
+// Fallback to Consumet natively via @consumet/extensions
 async function fetchFromConsumet(query, episodeNumber) {
   try {
-    const baseUrl = process.env.CONSUMET_URL || 'https://api.consumet.org';
-    const searchRes = await fetch(`${baseUrl}/anime/gogoanime/${encodeURIComponent(query)}`);
-    if (!searchRes.ok) return null;
-    const searchData = await searchRes.json();
-    if (!searchData.results || searchData.results.length === 0) return null;
+    // Dynamic import to avoid breaking the server if the module is missing
+    const consumet = await import('@consumet/extensions');
+    const gogoanime = new consumet.ANIME.Gogoanime();
     
-    const animeId = searchData.results[0].id;
-    const infoRes = await fetch(`${baseUrl}/anime/gogoanime/info/${animeId}`);
-    if (!infoRes.ok) return null;
-    const infoData = await infoRes.json();
+    const searchRes = await gogoanime.search(query);
+    if (!searchRes.results || searchRes.results.length === 0) return null;
     
-    const ep = infoData.episodes.find(e => e.number === parseInt(episodeNumber));
+    const animeId = searchRes.results[0].id;
+    const info = await gogoanime.fetchAnimeInfo(animeId);
+    
+    const ep = info.episodes.find(e => e.number === parseInt(episodeNumber));
     if (!ep) return null;
     
-    const watchRes = await fetch(`${baseUrl}/anime/gogoanime/watch/${ep.id}`);
-    if (!watchRes.ok) return null;
-    const watchData = await watchRes.json();
+    const watchData = await gogoanime.fetchEpisodeSources(ep.id);
     
     return watchData.sources.map(s => ({
       url: s.url,
       quality: s.quality,
-      provider: 'Consumet'
+      provider: 'Consumet (Native)'
     }));
   } catch (err) {
-    console.error('Consumet fallback error:', err.message);
+    console.error('Consumet native fallback error:', err.message);
     return null;
   }
 }
