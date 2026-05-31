@@ -261,8 +261,8 @@ export function AnimeApp() {
 
       if (validSortedSources.length === 0) throw new Error('No playable stream sources found.');
 
-      // Check for preferred provider
-      const preferredProvider = localStorage.getItem('anikage_preferred_provider');
+      // Check for preferred provider for this specific anime
+      const preferredProvider = localStorage.getItem(`anikage_preferred_provider_${anime.id}`);
       if (preferredProvider) {
         const prefIndex = validSortedSources.findIndex(s => s.provider === preferredProvider);
         if (prefIndex > 0) {
@@ -309,8 +309,8 @@ export function AnimeApp() {
     setSourceIndex(nextIndex);
     const nextSource = sources[nextIndex];
     
-    if (nextSource.provider) {
-      localStorage.setItem('anikage_preferred_provider', nextSource.provider);
+    if (nextSource.provider && watchingAnime) {
+      localStorage.setItem(`anikage_preferred_provider_${watchingAnime.id}`, nextSource.provider);
     }
     
     const isDirectVideo = 
@@ -335,8 +335,8 @@ export function AnimeApp() {
     setSourceIndex(index);
     const nextSource = sources[index];
     
-    if (nextSource.provider) {
-      localStorage.setItem('anikage_preferred_provider', nextSource.provider);
+    if (nextSource.provider && watchingAnime) {
+      localStorage.setItem(`anikage_preferred_provider_${watchingAnime.id}`, nextSource.provider);
     }
     
     const isDirectVideo = 
