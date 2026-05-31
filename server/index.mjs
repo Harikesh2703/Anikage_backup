@@ -209,6 +209,38 @@ app.post('/api/history', async (req, res) => {
   }
 });
 
+// Fallback to Consumet API if AllAnime fails
+async function fetchFromConsumet(query, episodeNumber) {
+  try {
+    const baseUrl = process.env.CONSUMET_URL || 'https://api.consumet.org';
+    const searchRes = await fetch(`${baseUrl}/anime/gogoanime/${encodeURIComponent(query)}`);
+    if (!searchRes.ok) return null;
+    const searchData = await searchRes.json();
+    if (!searchData.results || searchData.results.length === 0) return null;
+    
+    const animeId = searchData.results[0].id;
+    const infoRes = await fetch(`${baseUrl}/anime/gogoanime/info/${animeId}`);
+    if (!infoRes.ok) return null;
+    const infoData = await infoRes.json();
+    
+    const ep = infoData.episodes.find(e => e.number === parseInt(episodeNumber));
+    if (!ep) return null;
+    
+    const watchRes = await fetch(`${baseUrl}/anime/gogoanime/watch/${ep.id}`);
+    if (!watchRes.ok) return null;
+    const watchData = await watchRes.json();
+    
+    return watchData.sources.map(s => ({
+      url: s.url,
+      quality: s.quality,
+      provider: 'Consumet'
+    }));
+  } catch (err) {
+    console.error('Consumet fallback error:', err.message);
+    return null;
+  }
+}
+
 // GET /api/sources/:showId/:episode
 app.get('/api/sources/:showId/:episode', async (req, res) => {
   try {
@@ -230,6 +262,14 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
     console.log(`[STREAM] Fetching sources for ${showId} ep ${episode}`);
     const { sources, fallback } = await api.getEpisodeEmbedUrls(showId, episode);
     console.log(`[STREAM] Raw Embed Sources:`, Object.keys(sources));
+    
+    // Filter to keep ONLY yt-mp4 and Ok
+    for (const key of Object.keys(sources)) {
+      if (key.toLowerCase() !== 'yt-mp4' && key.toLowerCase() !== 'ok') {
+        delete sources[key];
+      }
+    }
+    console.log(`[STREAM] Filtered Embed Sources:`, Object.keys(sources));
     
     const links = await api.generateLinks(sources);
     console.log(`[STREAM] Extracted Links:`, links.length);
@@ -264,7 +304,7 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
       return qB - qA;
     });
 
-    const responsePayload = sortedLinks.length === 0
+    let responsePayload = sortedLinks.length === 0
       ? { 
           sources: [{ url: fallback, quality: 'browser', provider: 'Fallback' }],
           fallback 
@@ -273,6 +313,24 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
           sources: sortedLinks,
           fallback
         };
+
+    // If no valid links were found (except browser fallback), try Consumet
+    if (sortedLinks.length === 0) {
+      console.log(`[STREAM] No valid links found. Attempting Consumet fallback...`);
+      // Get title from DB for search
+      try {
+        const info = await db_helper.getProgress(showId);
+        if (info && info.title) {
+          const consumetSources = await fetchFromConsumet(info.title, episode);
+          if (consumetSources && consumetSources.length > 0) {
+            console.log(`[STREAM] Consumet fallback successful! Found ${consumetSources.length} sources.`);
+            responsePayload = { sources: consumetSources, fallback };
+          }
+        }
+      } catch (e) {
+        console.error('Consumet fallback DB error:', e.message);
+      }
+    }
 
     // Save to cache in the background
     db_helper.saveLinksToCache(cacheKey, responsePayload)
