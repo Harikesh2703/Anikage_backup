@@ -150,6 +150,11 @@ export function VideoPlayer({
         initialTimeRef.current = 0; // only seek once
       }
     };
+    const onEnded = () => {
+      if (hasNext) {
+        onEpisodeChange(totalEpisodes[currentEpIndex + 1]);
+      }
+    };
     const onError = () => {
       console.error('[Video Error] Playback failed, trying next source...');
       if (hasMoreSources) onTryNextSource();
@@ -162,6 +167,7 @@ export function VideoPlayer({
     video.addEventListener('waiting', onWaiting);
     video.addEventListener('canplay', onCanPlay);
     video.addEventListener('error', onError);
+    video.addEventListener('ended', onEnded);
     return () => {
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
@@ -171,8 +177,9 @@ export function VideoPlayer({
       video.removeEventListener('waiting', onWaiting);
       video.removeEventListener('canplay', onCanPlay);
       video.removeEventListener('error', onError);
+      video.removeEventListener('ended', onEnded);
     };
-  }, [onTryNextSource, hasMoreSources]);
+  }, [onTryNextSource, hasMoreSources, hasNext, currentEpIndex, totalEpisodes, onEpisodeChange]);
 
   // Fullscreen listener
   useEffect(() => {
@@ -387,6 +394,21 @@ export function VideoPlayer({
             <div className="w-20 h-20 rounded-full bg-black/50 flex items-center justify-center">
               <Play className="w-10 h-10 text-white fill-white ml-1" />
             </div>
+          </div>
+        )}
+
+        {/* Next Episode overlay 10s before end */}
+        {!isIframe && hasNext && duration > 0 && (duration - currentTime <= 10) && (
+          <div className="absolute bottom-24 right-8 z-[60]">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEpisodeChange(totalEpisodes[currentEpIndex + 1]);
+              }}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-3 rounded-full font-bold shadow-2xl flex items-center gap-2 animate-in slide-in-from-right fade-in"
+            >
+              Next Episode <ChevronRight className="w-5 h-5" />
+            </button>
           </div>
         )}
       </div>

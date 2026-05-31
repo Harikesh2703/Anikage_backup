@@ -1,4 +1,4 @@
-import { app, BrowserWindow, utilityProcess, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, utilityProcess, ipcMain, dialog, shell } from 'electron';
 app.name = 'Anikage';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -246,6 +246,60 @@ app.on('activate', () => {
     createWindow();
   }
 });
+// Handle folder selection for downloads
+ipcMain.handle('select-download-directory', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'Select Downloads Directory'
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+      return { success: true, path: result.filePaths[0] };
+    }
+    return { success: false, canceled: true };
+  } catch (err) {
+    console.error('Folder selection failed:', err.message);
+    return { success: false, error: err.message };
+  }
+});
+
+// Handle opening a path (video file or directory) natively
+ipcMain.handle('open-path', async (event, filePath) => {
+  try {
+    if (fs.existsSync(filePath)) {
+      await shell.openPath(filePath);
+      return { success: true };
+    }
+    // Try opening containing folder
+    const dir = path.dirname(filePath);
+    if (fs.existsSync(dir)) {
+      await shell.openPath(dir);
+      return { success: true };
+    }
+    return { success: false, error: 'Path does not exist' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Handle showing a file in its containing folder natively
+ipcMain.handle('show-item-in-folder', async (event, filePath) => {
+  try {
+    if (fs.existsSync(filePath)) {
+      shell.showItemInFolder(filePath);
+      return { success: true };
+    }
+    const dir = path.dirname(filePath);
+    if (fs.existsSync(dir)) {
+      await shell.openPath(dir);
+      return { success: true };
+    }
+    return { success: false, error: 'Path does not exist' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 // Handle Factory Reset (Wipe everything except database)
 ipcMain.handle('factory-reset', async () => {
   try {
@@ -848,9 +902,9 @@ ipcMain.handle('export-db', async () => {
 
     let defaultPath;
     try {
-      defaultPath = path.join(app.getPath('downloads'), 'anikage_backup.db');
+      defaultPath = path.join(app.getPath('downloads'), 'anikage_backup.json');
     } catch (e) {
-      defaultPath = path.join(app.getPath('home'), 'anikage_backup.db');
+      defaultPath = path.join(app.getPath('home'), 'anikage_backup.json');
     }
 
     writeLog(`[Export] Opening save dialog. Default path: ${defaultPath}`);
@@ -858,12 +912,31 @@ ipcMain.handle('export-db', async () => {
     const { filePath } = await dialog.showSaveDialog(mainWindow, {
       title: 'Export Watch History',
       defaultPath: defaultPath,
-      filters: [{ name: 'SQLite Database', extensions: ['db'] }]
+      filters: [{ name: 'JSON Backup', extensions: ['json'] }]
     });
 
     if (filePath) {
-      fs.copyFileSync(dbPath, filePath);
-      writeLog(`[Export] Backup saved to: ${filePath}`);
+      const { default: sqlite3 } = await import('sqlite3');
+      const db = new sqlite3.Database(dbPath);
+      
+      const tables = await new Promise((res, rej) => {
+        db.all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", (err, rows) => {
+          if (err) rej(err); else res(rows.map(r => r.name));
+        });
+      });
+      
+      const backupData = {};
+      for (const table of tables) {
+        backupData[table] = await new Promise((res, rej) => {
+          db.all(`SELECT * FROM ${table}`, (err, rows) => {
+            if (err) rej(err); else res(rows);
+          });
+        });
+      }
+      db.close();
+      
+      fs.writeFileSync(filePath, JSON.stringify(backupData, null, 2));
+      writeLog(`[Export] JSON Backup saved to: ${filePath}`);
       return { success: true, path: filePath };
     }
     writeLog('[Export] Dialog cancelled by user.');
@@ -880,7 +953,7 @@ ipcMain.handle('import-db', async () => {
     writeLog('[Import] Opening open dialog.');
     const { filePaths } = await dialog.showOpenDialog(mainWindow, {
       title: 'Import Watch History',
-      filters: [{ name: 'SQLite Database', extensions: ['db'] }],
+      filters: [{ name: 'JSON Backup', extensions: ['json'] }],
       properties: ['openFile']
     });
 
@@ -892,7 +965,10 @@ ipcMain.handle('import-db', async () => {
       writeLog(`[Import] Selected file: ${sourcePath}`);
       writeLog(`[Import] Target path: ${targetPath}`);
 
-      // Kill server process before replacing DB
+      const rawData = fs.readFileSync(sourcePath, 'utf8');
+      const backupData = JSON.parse(rawData);
+
+      // Kill server process before modifying DB
       if (serverProcess) {
         writeLog('[Import] Killing server process for DB replacement...');
         serverProcess.kill();
@@ -901,12 +977,28 @@ ipcMain.handle('import-db', async () => {
       // Give it a moment to release the file lock
       await new Promise(resolve => setTimeout(resolve, 800));
       
-      fs.copyFileSync(sourcePath, targetPath);
-      writeLog('[Import] File copied successfully.');
+      const { default: sqlite3 } = await import('sqlite3');
+      const db = new sqlite3.Database(targetPath);
       
-      // RESTART BACKEND: Start the server again with the new database
-      writeLog('[Import] Restarting server...');
-      startServer();
+      db.serialize(() => {
+        for (const [table, rows] of Object.entries(backupData)) {
+          if (!Array.isArray(rows) || rows.length === 0) continue;
+          
+          const cols = Object.keys(rows[0]);
+          const placeholders = cols.map(() => '?').join(', ');
+          const stmt = db.prepare(`REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`);
+          
+          for (const row of rows) {
+            stmt.run(cols.map(c => row[c]));
+          }
+          stmt.finalize();
+        }
+      });
+      
+      db.close((err) => {
+        writeLog('[Import] Database import finished.');
+        startServer();
+      });
       
       return { success: true };
     }

@@ -150,7 +150,7 @@ export function SettingsView({ notifications }: SettingsViewProps) {
                 Export Library
               </h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Save your entire watch history and personalized library as a single <code>.db</code> file.
+                Save your entire watch history and personalized library as a single <code>.json</code> file.
               </p>
               <button
                 onClick={async () => {
