@@ -209,55 +209,11 @@ app.post('/api/history', async (req, res) => {
   }
 });
 
-// Dedicated Consumet endpoint (so it doesn't block main stream loading)
-app.get('/api/sources/consumet/:title/:episode', async (req, res) => {
-  try {
-    const { title, episode } = req.params;
-    
-    if (!globalThis.File) {
-      class File extends Blob {
-        constructor(chunks, name, opts = {}) {
-          super(chunks, opts);
-          this.name = name;
-        }
-      }
-      globalThis.File = File;
-    }
-
-    const consumet = await import('@consumet/extensions');
-    const provider = new consumet.ANIME.AnimePahe();
-    
-    console.log(`[STREAM] Fetching Consumet mirrors for: ${title}`);
-    const searchRes = await provider.search(title);
-    if (!searchRes.results || searchRes.results.length === 0) return res.json({ sources: [] });
-    
-    const animeId = searchRes.results[0].id;
-    const info = await provider.fetchAnimeInfo(animeId);
-    
-    const ep = info.episodes.find(e => e.number === parseInt(episode));
-    if (!ep) return res.json({ sources: [] });
-    
-    const watchData = await provider.fetchEpisodeSources(ep.id);
-    
-    const sources = watchData.sources.map(s => ({
-      url: s.url,
-      quality: s.quality,
-      provider: 'Consumet (AnimePahe)'
-    }));
-    
-    console.log(`[STREAM] Consumet found ${sources.length} sources.`);
-    res.json({ sources });
-  } catch (err) {
-    console.error('Consumet native error:', err.message);
-    res.json({ sources: [] });
-  }
-});
 
 // GET /api/sources/:showId/:episode
 app.get('/api/sources/:showId/:episode', async (req, res) => {
   try {
     const { showId, episode } = req.params;
-    const title = req.query.title;
     const cacheKey = `${showId}:${episode}`;
 
     // Try reading from cache first

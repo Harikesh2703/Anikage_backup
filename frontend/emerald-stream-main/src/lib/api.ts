@@ -76,9 +76,6 @@ export const api = {
   stream: (showId: string, episode: string, title?: string) =>
     get<StreamResponse>(`/sources/${showId}/${episode}${title ? `?title=${encodeURIComponent(title)}` : ''}`),
 
-  consumetStream: (title: string, episode: string) =>
-    get<StreamResponse>(`/sources/consumet/${encodeURIComponent(title)}/${episode}`),
-
   history: () =>
     get<AnimeItem[]>(`/history`).then(items =>
       items.map(item => ({ ...item, title: normalizeTitle(item.title) }))
