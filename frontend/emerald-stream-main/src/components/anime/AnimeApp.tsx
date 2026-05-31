@@ -223,16 +223,22 @@ export function AnimeApp() {
       if (!response.sources || response.sources.length === 0) throw new Error('No stream sources found.');
       
       // Helper to extract numeric quality for sorting
-      const getQualityScore = (q: string) => {
+      const getQualityScore = (q: string, provider: string = '') => {
+        let score = 0;
         const match = q.match(/(\d+)/);
-        if (match) return parseInt(match[1]);
-        if (q.toLowerCase().includes('multi') || q.toLowerCase().includes('auto')) return 2000; // Prefer multi-quality
-        return 0;
+        if (match) score = parseInt(match[1]);
+        if (q.toLowerCase().includes('multi') || q.toLowerCase().includes('auto')) score = 2000; // Prefer multi-quality
+        
+        if (provider.toLowerCase().includes('yt-mp4')) {
+          score += 10000; // Give yt-mp4 the highest priority
+        }
+        
+        return score;
       };
 
       // Sort sources by quality descending
       const sortedSources = [...response.sources].sort((a, b) => 
-        getQualityScore(b.quality) - getQualityScore(a.quality)
+        getQualityScore(b.quality, b.provider) - getQualityScore(a.quality, a.provider)
       );
 
       // Helper to validate URL
@@ -251,7 +257,7 @@ export function AnimeApp() {
       // Sort and FILTER sources by quality and validity
       const validSortedSources = [...response.sources]
         .filter(s => isValidUrl(s.url))
-        .sort((a, b) => getQualityScore(b.quality) - getQualityScore(a.quality));
+        .sort((a, b) => getQualityScore(b.quality, b.provider) - getQualityScore(a.quality, a.provider));
 
       if (validSortedSources.length === 0) throw new Error('No playable stream sources found.');
 
