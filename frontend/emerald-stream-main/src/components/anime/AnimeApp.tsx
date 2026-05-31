@@ -219,7 +219,7 @@ export function AnimeApp() {
     setSourceIndex(0);
     setCurrentEpisode(episode);
     try {
-      const response = await api.stream(anime.id, episode);
+      const response = await api.stream(anime.id, episode, anime.title);
       if (!response.sources || response.sources.length === 0) throw new Error('No stream sources found.');
       
       // Helper to extract numeric quality for sorting

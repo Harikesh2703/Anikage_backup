@@ -242,6 +242,7 @@ async function fetchFromConsumet(query, episodeNumber) {
 app.get('/api/sources/:showId/:episode', async (req, res) => {
   try {
     const { showId, episode } = req.params;
+    const title = req.query.title;
     const cacheKey = `${showId}:${episode}`;
 
     // Try reading from cache first
@@ -311,21 +312,21 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
           fallback
         };
 
-    // If no valid links were found (except browser fallback), try Consumet
-    if (sortedLinks.length === 0) {
-      console.log(`[STREAM] No valid links found. Attempting Consumet fallback...`);
-      // Get title from DB for search
+    // ALWAYS append Consumet mirrors to the list so user can switch to them
+    if (title) {
+      console.log(`[STREAM] Fetching Consumet mirrors for: ${title}`);
       try {
-        const info = await db_helper.getProgress(showId);
-        if (info && info.title) {
-          const consumetSources = await fetchFromConsumet(info.title, episode);
-          if (consumetSources && consumetSources.length > 0) {
-            console.log(`[STREAM] Consumet fallback successful! Found ${consumetSources.length} sources.`);
-            responsePayload = { sources: consumetSources, fallback };
+        const consumetSources = await fetchFromConsumet(title, episode);
+        if (consumetSources && consumetSources.length > 0) {
+          console.log(`[STREAM] Consumet found ${consumetSources.length} sources.`);
+          if (sortedLinks.length === 0) {
+            responsePayload.sources = consumetSources;
+          } else {
+            responsePayload.sources = [...responsePayload.sources, ...consumetSources];
           }
         }
       } catch (e) {
-        console.error('Consumet fallback DB error:', e.message);
+        console.error('Consumet mirror append error:', e.message);
       }
     }
 

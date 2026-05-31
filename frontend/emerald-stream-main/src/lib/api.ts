@@ -73,8 +73,8 @@ export const api = {
   episodes: (showId: string) =>
     get<string[]>(`/episodes/${showId}`),
 
-  stream: (showId: string, episode: string) =>
-    get<StreamResponse>(`/sources/${showId}/${episode}`),
+  stream: (showId: string, episode: string, title?: string) =>
+    get<StreamResponse>(`/sources/${showId}/${episode}${title ? `?title=${encodeURIComponent(title)}` : ''}`),
 
   history: () =>
     get<AnimeItem[]>(`/history`).then(items =>
