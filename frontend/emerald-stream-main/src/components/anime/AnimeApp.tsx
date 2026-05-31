@@ -274,6 +274,19 @@ export function AnimeApp() {
       setSources(validSortedSources);
       setSourceIndex(0);
       
+      // Async fetch Consumet mirrors in the background so it doesn't freeze playback
+      api.consumetStream(anime.title, episode).then(consumetRes => {
+        if (consumetRes && consumetRes.sources && consumetRes.sources.length > 0) {
+          setSources(prev => {
+            // Avoid duplicates
+            if (prev.some(s => s.provider.includes('Consumet'))) return prev;
+            return [...prev, ...consumetRes.sources];
+          });
+        }
+      }).catch(err => {
+        console.warn('Consumet async load failed:', err);
+      });
+      
       const firstSource = validSortedSources[0];
       const isDirectVideo = 
         firstSource.url.includes('.m3u8') || 

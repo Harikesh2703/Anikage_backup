@@ -209,10 +209,11 @@ app.post('/api/history', async (req, res) => {
   }
 });
 
-// Fallback to Consumet natively via @consumet/extensions
-async function fetchFromConsumet(query, episodeNumber) {
+// Dedicated Consumet endpoint (so it doesn't block main stream loading)
+app.get('/api/sources/consumet/:title/:episode', async (req, res) => {
   try {
-    // Polyfill File for Node 18 compatibility with undici (used by @consumet/extensions)
+    const { title, episode } = req.params;
+    
     if (!globalThis.File) {
       class File extends Blob {
         constructor(chunks, name, opts = {}) {
@@ -223,31 +224,34 @@ async function fetchFromConsumet(query, episodeNumber) {
       globalThis.File = File;
     }
 
-    // Dynamic import to avoid breaking the server if the module is missing
     const consumet = await import('@consumet/extensions');
     const hianime = new consumet.ANIME.Hianime();
     
-    const searchRes = await hianime.search(query);
-    if (!searchRes.results || searchRes.results.length === 0) return null;
+    console.log(`[STREAM] Fetching Consumet mirrors for: ${title}`);
+    const searchRes = await hianime.search(title);
+    if (!searchRes.results || searchRes.results.length === 0) return res.json({ sources: [] });
     
     const animeId = searchRes.results[0].id;
     const info = await hianime.fetchAnimeInfo(animeId);
     
-    const ep = info.episodes.find(e => e.number === parseInt(episodeNumber));
-    if (!ep) return null;
+    const ep = info.episodes.find(e => e.number === parseInt(episode));
+    if (!ep) return res.json({ sources: [] });
     
     const watchData = await hianime.fetchEpisodeSources(ep.id);
     
-    return watchData.sources.map(s => ({
+    const sources = watchData.sources.map(s => ({
       url: s.url,
       quality: s.quality,
       provider: 'Consumet (Native)'
     }));
+    
+    console.log(`[STREAM] Consumet found ${sources.length} sources.`);
+    res.json({ sources });
   } catch (err) {
-    console.error('Consumet native fallback error:', err.message);
-    return null;
+    console.error('Consumet native error:', err.message);
+    res.json({ sources: [] });
   }
-}
+});
 
 // GET /api/sources/:showId/:episode
 app.get('/api/sources/:showId/:episode', async (req, res) => {
@@ -322,24 +326,6 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
           sources: sortedLinks,
           fallback
         };
-
-    // ALWAYS append Consumet mirrors to the list so user can switch to them
-    if (title) {
-      console.log(`[STREAM] Fetching Consumet mirrors for: ${title}`);
-      try {
-        const consumetSources = await fetchFromConsumet(title, episode);
-        if (consumetSources && consumetSources.length > 0) {
-          console.log(`[STREAM] Consumet found ${consumetSources.length} sources.`);
-          if (sortedLinks.length === 0) {
-            responsePayload.sources = consumetSources;
-          } else {
-            responsePayload.sources = [...responsePayload.sources, ...consumetSources];
-          }
-        }
-      } catch (e) {
-        console.error('Consumet mirror append error:', e.message);
-      }
-    }
 
     // Save to cache in the background
     db_helper.saveLinksToCache(cacheKey, responsePayload)
