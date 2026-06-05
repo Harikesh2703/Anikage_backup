@@ -1,4 +1,4 @@
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs');
 const os = require('os');
@@ -6,7 +6,7 @@ const path = require('path');
 const config = require('../utils/config');
 const helpers = require('../utils/helpers');
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 class AllAnimeAPI {
   constructor() {
@@ -38,9 +38,20 @@ class AllAnimeAPI {
     fs.writeFileSync(tempFile, JSON.stringify(payload));
 
     try {
-      const curlCmd = `curl -s -H "User-Agent: ${this.userAgent}" -H "Referer: ${this.referer}" -H "Origin: https://allmanga.to" -H "Accept: application/json" -H "Accept-Language: en-US,en;q=0.9" -H "Sec-Fetch-Dest: empty" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Site: cross-site" -H "Content-Type: application/json" --data @"${tempFile}" "${this.apiUrl}"`;
-
-      const { stdout } = await execAsync(curlCmd, { maxBuffer: 10 * 1024 * 1024 });
+      const { stdout } = await execFileAsync('curl', [
+        '-s',
+        '-H', `User-Agent: ${this.userAgent}`,
+        '-H', `Referer: ${this.referer}`,
+        '-H', 'Origin: https://allmanga.to',
+        '-H', 'Accept: application/json',
+        '-H', 'Accept-Language: en-US,en;q=0.9',
+        '-H', 'Sec-Fetch-Dest: empty',
+        '-H', 'Sec-Fetch-Mode: cors',
+        '-H', 'Sec-Fetch-Site: cross-site',
+        '-H', 'Content-Type: application/json',
+        '--data', `@${tempFile}`,
+        this.apiUrl
+      ], { maxBuffer: 10 * 1024 * 1024 });
       return JSON.parse(stdout);
     } finally {
       if (fs.existsSync(tempFile)) {
@@ -50,8 +61,18 @@ class AllAnimeAPI {
   }
 
   async execGet(url) {
-    const curlCmd = `curl -s -H "User-Agent: ${this.userAgent}" -H "Referer: ${this.referer}" -H "Origin: https://allmanga.to" -H "Accept: */*" -H "Accept-Language: en-US,en;q=0.9" -H "Sec-Fetch-Dest: empty" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Site: same-site" "${url}"`;
-    const { stdout } = await execAsync(curlCmd, { maxBuffer: 10 * 1024 * 1024 });
+    const { stdout } = await execFileAsync('curl', [
+      '-s',
+      '-H', `User-Agent: ${this.userAgent}`,
+      '-H', `Referer: ${this.referer}`,
+      '-H', 'Origin: https://allmanga.to',
+      '-H', 'Accept: */*',
+      '-H', 'Accept-Language: en-US,en;q=0.9',
+      '-H', 'Sec-Fetch-Dest: empty',
+      '-H', 'Sec-Fetch-Mode: cors',
+      '-H', 'Sec-Fetch-Site: same-site',
+      url
+    ], { maxBuffer: 10 * 1024 * 1024 });
     return stdout;
   }
 
@@ -133,9 +154,14 @@ class AllAnimeAPI {
       const encoded_ext = encodeURIComponent(JSON.stringify(query_ext));
 
       const api_url = `${this.apiUrl}?variables=${encoded_vars}&extensions=${encoded_ext}`;
-      let curlCmd = `curl -s -e "${this.referer}" -H "Origin: https://youtu-chan.com" -A "${this.userAgent}" "${api_url}"`;
       
-      let { stdout } = await execAsync(curlCmd, { maxBuffer: 10 * 1024 * 1024 });
+      let { stdout } = await execFileAsync('curl', [
+        '-s',
+        '-e', this.referer,
+        '-H', 'Origin: https://youtu-chan.com',
+        '-A', this.userAgent,
+        api_url
+      ], { maxBuffer: 10 * 1024 * 1024 });
       let response = JSON.parse(stdout);
       
       let sourceUrls = [];

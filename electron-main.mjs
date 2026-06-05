@@ -137,10 +137,17 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       preload: path.join(__dirname, 'preload.js')
     },
     autoHideMenuBar: true
   });
+  
+  if (app.isPackaged) {
+    mainWindow.webContents.on('devtools-opened', () => {
+      mainWindow.webContents.closeDevTools();
+    });
+  }
 
   const patchUiPath = path.join(userDataPath, 'patches/ui/index.html');
 
@@ -309,7 +316,7 @@ async function fetchRemoteVersion() {
 async function installPatchInternal({ url, type = 'scraper', version }) {
   try {
     // Safety check: protect sqlite database & native binaries
-    if (type.includes('db.mjs') || type.includes('db.js') || type.includes('anikage.db') || type.includes('sqlite3')) {
+    if (type.includes('db.mjs') || type.includes('db.js') || type.includes('anikage.db') || type.includes('better-sqlite3')) {
       throw new Error('Database-related components are protected and cannot be modified via hotpatching.');
     }
 
@@ -435,26 +442,16 @@ ipcMain.handle('patch-scraper', async (event, { url, type = 'scraper', version }
 });
 
 // Helper to extract zip files using native OS commands
-function extractZip(zipPath, destDir) {
-  return new Promise((resolve, reject) => {
-    const isWindows = process.platform === 'win32';
-    let cmd;
-    if (isWindows) {
-      cmd = `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${destDir}' -Force"`;
-    } else {
-      cmd = `unzip -o "${zipPath}" -d "${destDir}"`;
-    }
-
-    exec(cmd, (err, stdout, stderr) => {
-      if (err) {
-        writeLog(`[Unzip Error] Extraction failed: ${err.message}. Stderr: ${stderr}`);
-        reject(new Error(stderr || err.message));
-      } else {
-        writeLog(`[Unzip] Extracted ${zipPath} successfully to ${destDir}`);
-        resolve();
-      }
-    });
-  });
+async function extractZip(zipPath, destDir) {
+  try {
+    const { default: AdmZip } = await import('adm-zip');
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(destDir, true);
+    writeLog(`[Unzip] Extracted ${zipPath} successfully to ${destDir}`);
+  } catch (err) {
+    writeLog(`[Unzip Error] Extraction failed: ${err.message}`);
+    throw err;
+  }
 }
 
 // Helper to update local config file version
@@ -551,7 +548,7 @@ async function checkForUpdates(window) {
     if (Array.isArray(remoteData.patches)) {
       for (const patch of remoteData.patches) {
         if (!patch.file || !patch.version) continue;
-        if (patch.file.includes('db.mjs') || patch.file.includes('db.js') || patch.file.includes('anikage.db') || patch.file.includes('sqlite3')) {
+        if (patch.file.includes('db.mjs') || patch.file.includes('db.js') || patch.file.includes('anikage.db') || patch.file.includes('better-sqlite3')) {
           continue;
         }
 
@@ -674,7 +671,7 @@ ipcMain.handle('get-available-patches', async () => {
     if (Array.isArray(remoteData.patches)) {
       for (const patch of remoteData.patches) {
         if (!patch.file || !patch.version) continue;
-        if (patch.file.includes('db.mjs') || patch.file.includes('db.js') || patch.file.includes('anikage.db') || patch.file.includes('sqlite3')) {
+        if (patch.file.includes('db.mjs') || patch.file.includes('db.js') || patch.file.includes('anikage.db') || patch.file.includes('better-sqlite3')) {
           continue;
         }
 
@@ -725,7 +722,7 @@ ipcMain.handle('auto-install-patches', async () => {
     const applyPatch = async (type, version, url) => {
       try {
         // Safety check: protect sqlite
-        if (type.includes('db.mjs') || type.includes('db.js') || type.includes('anikage.db') || type.includes('sqlite3')) {
+        if (type.includes('db.mjs') || type.includes('db.js') || type.includes('anikage.db') || type.includes('better-sqlite3')) {
           return;
         }
 

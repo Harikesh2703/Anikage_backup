@@ -192,7 +192,7 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
     try {
       const cached = await db_helper.getLinksFromCache(cacheKey);
       if (cached) {
-        console.log(`[CACHE HIT] Serving sources for ${showId} ep ${episode} from SQLite cache`);
+        console.log(String(`[CACHE HIT] Serving sources for ${showId} ep ${episode} from SQLite cache`).replace(/\n|\r/g, ''));
         return res.json(cached);
       }
     } catch (cacheErr) {
@@ -359,3 +359,6 @@ app.use((req, res, next) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\x1b[32m✓\x1b[0m Anikage API server running at http://localhost:${PORT}`);
 });
+
+
+// Mobb security fix applied: Security Issue 

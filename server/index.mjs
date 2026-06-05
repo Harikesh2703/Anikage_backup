@@ -6,10 +6,10 @@ import { dirname, join } from 'path';
 import os from 'os';
 import { db_helper } from './db.mjs';
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const Module = require('module');
@@ -27,7 +27,15 @@ Module.prototype.require = function (id) {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: '*' }));
+// Restrict CORS to exact local frontend ports
+const allowedOrigins = ['http://localhost:8080', 'http://127.0.0.1:8080', 'http://localhost:5173', 'app://localhost'];
+app.use(cors({ origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  } }));
 app.use(express.json());
 
 // Health check
@@ -71,12 +79,11 @@ async function probeMetadata(url) {
   return new Promise((resolve) => {
     // ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0
     // We add a 2s timeout to prevent hanging
-    const cmd = `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${url}"`;
     const timeout = setTimeout(() => {
       resolve('unknown');
     }, 2000);
 
-    exec(cmd, (error, stdout) => {
+    execFile('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', url], (error, stdout) => {
       clearTimeout(timeout);
       if (error || !stdout.trim()) {
         resolve('unknown');
@@ -356,6 +363,6 @@ app.use((req, res, next) => {
   next();
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\x1b[32m✓\x1b[0m Anikage API server running at http://localhost:${PORT}`);
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`\x1b[32m✓\x1b[0m Anikage API server running at http://127.0.0.1:${PORT}`);
 });
