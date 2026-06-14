@@ -1,17 +1,15 @@
-const { exec } = require('child_process');
-const { promisify } = require('util');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 const config = require('../utils/config');
 const helpers = require('../utils/helpers');
 
-const execAsync = promisify(exec);
-
 class AllAnimeAPI {
   constructor() {
-    this.userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0";
-    this.referer = "https://allmanga.to";
+    this.userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0";
+    this.referer = "https://youtu-chan.com";
     this.apiUrl = config.allanimeApi ? `${config.allanimeApi}/api` : "https://api.allanime.day/api";
   }
 
@@ -32,27 +30,74 @@ class AllAnimeAPI {
     return JSON.parse(decrypted);
   }
 
+  // SECURITY: Use native https request instead of shell-based curl to prevent
+  // command injection via crafted URLs or API responses (VULN-02)
   async executeGraphql(query, variables) {
-    const payload = { query, variables };
-    const tempFile = path.join(os.tmpdir(), `graphql_${Date.now()}_${Math.random().toString(36).slice(2)}.json`);
-    fs.writeFileSync(tempFile, JSON.stringify(payload));
+    const payload = JSON.stringify({ query, variables });
+    const parsedUrl = new URL(this.apiUrl);
+    
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: 'POST',
+        headers: {
+          'User-Agent': this.userAgent,
+          'Referer': this.referer,
+          'Origin': 'https://youtu-chan.com',
+          'Accept': 'application/json',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        }
+      };
 
-    try {
-      const curlCmd = `curl -s -H "User-Agent: ${this.userAgent}" -H "Referer: ${this.referer}" -H "Origin: https://allmanga.to" -H "Accept: application/json" -H "Accept-Language: en-US,en;q=0.9" -H "Sec-Fetch-Dest: empty" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Site: cross-site" -H "Content-Type: application/json" --data @"${tempFile}" "${this.apiUrl}"`;
-
-      const { stdout } = await execAsync(curlCmd, { maxBuffer: 10 * 1024 * 1024 });
-      return JSON.parse(stdout);
-    } finally {
-      if (fs.existsSync(tempFile)) {
-        fs.unlinkSync(tempFile);
-      }
-    }
+      const protocol = parsedUrl.protocol === 'https:' ? https : http;
+      const req = protocol.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => data += chunk);
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(new Error(`Failed to parse GraphQL response: ${e.message}`));
+          }
+        });
+      });
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
   }
 
+  // SECURITY: Use native https GET instead of shell-based curl (VULN-02)
   async execGet(url) {
-    const curlCmd = `curl -s -H "User-Agent: ${this.userAgent}" -H "Referer: ${this.referer}" -H "Origin: https://allmanga.to" -H "Accept: */*" -H "Accept-Language: en-US,en;q=0.9" -H "Sec-Fetch-Dest: empty" -H "Sec-Fetch-Mode: cors" -H "Sec-Fetch-Site: same-site" "${url}"`;
-    const { stdout } = await execAsync(curlCmd, { maxBuffer: 10 * 1024 * 1024 });
-    return stdout;
+    if (url.startsWith('//')) url = 'https:' + url;
+    const parsedUrl = new URL(url);
+    
+    return new Promise((resolve, reject) => {
+      const protocol = parsedUrl.protocol === 'https:' ? https : http;
+      const options = {
+        headers: {
+          'User-Agent': this.userAgent,
+          'Referer': this.referer,
+          'Origin': 'https://youtu-chan.com',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      };
+      
+      protocol.get(url, options, (res) => {
+        // Follow redirects
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return resolve(this.execGet(res.headers.location));
+        }
+        let data = '';
+        res.on('data', (chunk) => data += chunk);
+        res.on('end', () => resolve(data));
+      }).on('error', reject);
+    });
   }
 
   /**
@@ -133,9 +178,9 @@ class AllAnimeAPI {
       const encoded_ext = encodeURIComponent(JSON.stringify(query_ext));
 
       const api_url = `${this.apiUrl}?variables=${encoded_vars}&extensions=${encoded_ext}`;
-      let curlCmd = `curl -s -e "${this.referer}" -H "Origin: https://youtu-chan.com" -A "${this.userAgent}" "${api_url}"`;
       
-      let { stdout } = await execAsync(curlCmd, { maxBuffer: 10 * 1024 * 1024 });
+      // SECURITY: Use native https GET instead of shell-based curl (VULN-02)
+      let stdout = await this.execGet(api_url);
       let response = JSON.parse(stdout);
       
       let sourceUrls = [];
@@ -174,6 +219,7 @@ class AllAnimeAPI {
 
   /**
    * Get direct video links from provider
+   * Ported from original ani-cli v4.14.1 get_links() function
    */
   async getVideoLinks(providerId, providerName) {
     try {
@@ -186,6 +232,36 @@ class AllAnimeAPI {
         providerId = 'https:' + providerId;
       }
 
+      // === PROVIDER-SPECIFIC HANDLING (matching original ani-cli) ===
+
+      // 1. Mp4Upload: scrape the embed page for the src URL
+      if (providerId.includes('mp4upload')) {
+        console.log(`[SCRAPER] Mp4Upload provider detected, scraping embed...`);
+        try {
+          const embedUrl = providerId.startsWith('http') ? providerId : `https://${providerId}`;
+          const html = await this.execGet(embedUrl);
+          const srcMatch = html.match(/src:\s*"([^"]*)"/);  // matches: src: "https://...mp4"
+          if (srcMatch && srcMatch[1]) {
+            let videoUrl = srcMatch[1];
+            if (videoUrl.startsWith('//')) videoUrl = 'https:' + videoUrl;
+            helpers.success(`${providerName} Links Fetched`);
+            return [{ quality: 'mp4upload', url: videoUrl, provider: providerName }];
+          }
+        } catch (e) {
+          console.error(`[SCRAPER] Mp4Upload scrape failed: ${e.message}`);
+        }
+        return [];
+      }
+
+      // 2. fast4speed.rsvp (Yt-mp4 replacement): direct mp4 link, use as-is
+      if (providerId.includes('fast4speed.rsvp') || providerId.includes('tools.fast4speed')) {
+        console.log(`[SCRAPER] fast4speed direct link detected`);
+        const directUrl = providerId.startsWith('http') ? providerId : `https://${providerId}`;
+        helpers.success(`${providerName} Links Fetched`);
+        return [{ quality: 'direct', url: directUrl, provider: providerName }];
+      }
+
+      // 3. Non-API URLs (external embeds like ok.ru, etc.) — return as-is
       if (!providerId.includes('apivtwo')) {
         const isValidUrl = providerId.includes('.') || providerId.includes('/');
         if (!isValidUrl) {
@@ -199,46 +275,82 @@ class AllAnimeAPI {
         }];
       }
 
+      // 4. AllAnime API endpoints (apivtwo) — parse JSON response for links
       const baseUrl = this.apiUrl.slice(0, -4);
       const url = providerId.startsWith('http') ? providerId : 
                  (providerId.startsWith('/') ? `${baseUrl}${providerId}` : `${baseUrl}/${providerId}`);
-      console.log("\\nDEBUG: Fetching provider URL ->", url);
+      console.log(`[SCRAPER] Fetching API provider URL -> ${url.substring(0, 100)}...`);
       const data = await this.execGet(url);
-      console.log("\\nDEBUG RAW SOURCE DATA:\\n", data.substring(0, 1000), "...");
       const links = [];
 
-      // Parse links based on response format
       if (typeof data === 'string') {
-        // Extract links from JSON-like string
+        // Extract direct mp4 links with resolution info
         const linkMatches = data.matchAll(/"link":"([^"]*)".*?"resolutionStr":"([^"]*)"/g);
         for (const match of linkMatches) {
           let linkUrl = match[1];
-          if (linkUrl.startsWith('//')) {
-            linkUrl = 'https:' + linkUrl;
-          }
-          links.push({
-            quality: match[2],
-            url: linkUrl,
-            provider: providerName
-          });
+          if (linkUrl.startsWith('//')) linkUrl = 'https:' + linkUrl;
+          links.push({ quality: match[2], url: linkUrl, provider: providerName });
         }
 
-        // Extract m3u8 links
+        // Extract m3u8 HLS links (English hardsub)
         const m3u8Matches = data.matchAll(/"hls","url":"([^"]*)".*?"hardsub_lang":"en-US"/g);
         for (const match of m3u8Matches) {
           let m3u8Url = match[1];
-          if (m3u8Url.startsWith('//')) {
-            m3u8Url = 'https:' + m3u8Url;
+          if (m3u8Url.startsWith('//')) m3u8Url = 'https:' + m3u8Url;
+          links.push({ quality: 'hls', url: m3u8Url, provider: providerName });
+        }
+
+        // 5. Wixmp/Default provider: m3u8 master playlist → extract individual mp4 quality streams
+        if (links.length > 0 && links.some(l => l.url.includes('repackager.wixmp.com'))) {
+          console.log(`[SCRAPER] Wixmp m3u8 detected, extracting mp4 quality streams...`);
+          const wixmpLinks = [];
+          for (const link of links) {
+            if (!link.url.includes('repackager.wixmp.com')) {
+              wixmpLinks.push(link);
+              continue;
+            }
+            try {
+              // Fetch the m3u8 master playlist
+              const m3u8Content = await this.execGet(link.url);
+              if (m3u8Content.includes('EXTM3U')) {
+                // Parse resolution lines: #EXT-X-STREAM-INF:...x720\n/path/to/stream.m3u8
+                const relativeBase = link.url.replace(/[^/]*$/, '');
+                const streamLines = m3u8Content.split('\n');
+                for (let i = 0; i < streamLines.length; i++) {
+                  const line = streamLines[i];
+                  if (line.includes('EXT-X-STREAM') && !line.includes('I-FRAME')) {
+                    const resMatch = line.match(/x(\d+)/);
+                    const nextLine = streamLines[i + 1]?.trim();
+                    if (resMatch && nextLine && !nextLine.startsWith('#')) {
+                      const streamUrl = nextLine.startsWith('http') ? nextLine : `${relativeBase}${nextLine}`;
+                      wixmpLinks.push({
+                        quality: `${resMatch[1]}p`,
+                        url: streamUrl,
+                        provider: providerName
+                      });
+                    }
+                  }
+                }
+              } else {
+                wixmpLinks.push(link);
+              }
+            } catch (e) {
+              console.error(`[SCRAPER] Wixmp m3u8 parse failed: ${e.message}`);
+              wixmpLinks.push(link); // Keep original link as fallback
+            }
           }
-          links.push({
-            quality: 'hls',
-            url: m3u8Url,
-            provider: providerName
-          });
+          if (wixmpLinks.length > 0) {
+            helpers.success(`${providerName} Links Fetched (${wixmpLinks.length} streams)`);
+            return wixmpLinks;
+          }
         }
       }
 
-      helpers.success(`${providerName} Links Fetched`);
+      if (links.length > 0) {
+        helpers.success(`${providerName} Links Fetched`);
+      } else {
+        console.log(`[SCRAPER] No links extracted from ${providerName}`);
+      }
       return links;
     } catch (error) {
       console.error(`Failed to get links from ${providerName}: ${error.message}`);

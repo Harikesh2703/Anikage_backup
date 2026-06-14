@@ -13,10 +13,8 @@ import {
   getFFmpegPath 
 } from './downloader.mjs';
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
-
-const execAsync = promisify(exec);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const Module = require('module');
@@ -34,8 +32,24 @@ Module.prototype.require = function (id) {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: '*' }));
-app.use(express.json());
+// SECURITY: Restrict CORS to localhost origins only (VULN-10)
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (file://, Electron, curl, etc.)
+    if (!origin) return callback(null, true);
+    const allowed = [
+      /^https?:\/\/localhost(:\d+)?$/,
+      /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+      /^file:\/\//
+    ];
+    if (allowed.some(pattern => pattern.test(origin))) {
+      return callback(null, true);
+    }
+    callback(new Error('CORS: Origin not allowed'));
+  }
+}));
+// SECURITY: Limit request body size to prevent DoS (VULN-12)
+app.use(express.json({ limit: '1mb' }));
 
 // Health check
 app.get('/api/ping', (req, res) => res.json({ status: 'ok' }));
@@ -76,14 +90,32 @@ async function probeMetadata(url) {
     console.error('Cache read error:', e.message);
   }
 
+  // SECURITY: Validate URL format before passing to ffprobe (VULN-01)
+  try {
+    const parsedUrl = new URL(url);
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return 'unknown';
+    }
+  } catch (e) {
+    return 'unknown';
+  }
+
   return new Promise((resolve) => {
-    const headersStr = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0\r\nReferer: https://allmanga.to\r\n";
-    const cmd = `ffprobe -headers "${headersStr}" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${url}"`;
+    const headersStr = "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0\r\nReferer: https://youtu-chan.com\r\n";
+    // SECURITY: Use execFile() with argument array to prevent shell injection (VULN-01)
+    const args = [
+      '-headers', headersStr,
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'csv=p=0',
+      url
+    ];
     const timeout = setTimeout(() => {
       resolve('unknown');
     }, 2000);
 
-    exec(cmd, (error, stdout) => {
+    execFile('ffprobe', args, (error, stdout) => {
       clearTimeout(timeout);
       if (error || !stdout.trim()) {
         resolve('unknown');
@@ -128,7 +160,8 @@ app.get('/api/trending', async (req, res) => {
     res.json(filtered);
   } catch (err) {
     console.error('/api/trending error:', err.message);
-    res.status(500).json({ error: err.message });
+    // SECURITY: Don't leak internal error details to clients (VULN-11)
+    res.status(500).json({ error: 'Failed to fetch trending anime' });
   }
 });
 
@@ -149,7 +182,7 @@ app.get('/api/search', async (req, res) => {
     })));
   } catch (err) {
     console.error('/api/search error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Search failed' });
   }
 });
 
@@ -161,7 +194,7 @@ app.get('/api/episodes/:showId', async (req, res) => {
     res.json(episodes);
   } catch (err) {
     console.error('/api/episodes error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to fetch episodes' });
   }
 });
 
@@ -172,7 +205,7 @@ app.get('/api/history', async (req, res) => {
     res.json(history);
   } catch (err) {
     console.error('/api/history error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to fetch history' });
   }
 });
 
@@ -183,7 +216,7 @@ app.get('/api/history/:animeId', async (req, res) => {
     res.json(progress);
   } catch (err) {
     console.error('GET /api/history/:animeId error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to fetch anime progress' });
   }
 });
 
@@ -205,7 +238,7 @@ app.post('/api/history', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('POST /api/history error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to save progress' });
   }
 });
 
@@ -232,13 +265,8 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
     const { sources, fallback } = await api.getEpisodeEmbedUrls(showId, episode);
     console.log(`[STREAM] Raw Embed Sources:`, Object.keys(sources));
     
-    // Filter to keep ONLY yt-mp4 and Ok
-    for (const key of Object.keys(sources)) {
-      if (key.toLowerCase() !== 'yt-mp4' && key.toLowerCase() !== 'ok') {
-        delete sources[key];
-      }
-    }
-    console.log(`[STREAM] Filtered Embed Sources:`, Object.keys(sources));
+    // Log all available providers (no filtering — try all mirrors like original ani-cli)
+    console.log(`[STREAM] Available Embed Sources:`, Object.keys(sources));
     
     const links = await api.generateLinks(sources);
     console.log(`[STREAM] Extracted Links:`, links.length);
@@ -291,14 +319,52 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
     res.json(responsePayload);
   } catch (err) {
     console.error('/api/sources error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to fetch stream sources' });
   }
 });
 
 // Proxy endpoint to bypass CORS and Referer restrictions
+// SECURITY: Allowlisted domains only to prevent SSRF (VULN-03)
+const ALLOWED_PROXY_DOMAINS = [
+  'allmanga.to', 'allanime.day', 'allanime.to',
+  'blog.allanime.pro', 'youtu-chan.com',
+  'wp.youtube-anime.com', 'cache.googlevideo.com',
+  'workfields.xyz', 'sharepoint.com',
+  'akamaized.net', 'biananset.net',
+  'fast4speed.rsvp',
+  'wixmp.com', 'repackager.wixmp.com',
+  'gogoanime.', 'gogocdn.', 'gogo-cdn.',
+  'vidstreamingcdn.', 'vidcdn.',
+  'sbplay.', 'streamsb.', 'embedsb.',
+  'mp4upload.com', 'mixdrop.', 'streamtape.',
+  'kwik.cx', 'kwik.si',
+  'v.vrv.co', 'pl.crunchyroll.com',
+];
+
+function isAllowedProxyDomain(urlString) {
+  try {
+    const parsed = new URL(urlString);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    // Block private/internal IPs (SSRF protection)
+    const hostname = parsed.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return false;
+    if (hostname.startsWith('10.') || hostname.startsWith('192.168.') || hostname.startsWith('172.')) return false;
+    if (hostname === '169.254.169.254') return false; // Cloud metadata
+    return ALLOWED_PROXY_DOMAINS.some(d => hostname.includes(d));
+  } catch {
+    return false;
+  }
+}
+
 app.get('/api/proxy', async (req, res) => {
   const targetUrl = req.query.url;
   if (!targetUrl) return res.status(400).send('URL required');
+
+  // SECURITY: Validate target URL against allowlist (VULN-03)
+  if (!isAllowedProxyDomain(targetUrl)) {
+    console.warn(`[PROXY] Blocked disallowed domain: ${targetUrl}`);
+    return res.status(403).send('Proxy: Domain not allowed');
+  }
 
   const https = require('https');
   const http = require('http');
@@ -319,11 +385,11 @@ app.get('/api/proxy', async (req, res) => {
         headers: {
           'User-Agent': api.userAgent,
           'Referer': api.referer,
-          'Origin': 'https://allmanga.to',
+          'Origin': 'https://youtu-chan.com',
           'Accept': '*/*',
           'Range': req.headers.range || 'bytes=0-',
         },
-        rejectUnauthorized: false // Handle self-signed or invalid certs from video hosts
+        rejectUnauthorized: false // Video CDNs often have cert issues; acceptable for local desktop app
       };
 
       protocol.get(url, options, (proxyRes) => {
@@ -332,6 +398,12 @@ app.get('/api/proxy', async (req, res) => {
           let nextUrl = proxyRes.headers.location;
           if (!nextUrl.startsWith('http')) {
             nextUrl = new URL(nextUrl, url).href;
+          }
+          // SECURITY: Validate redirect targets too
+          if (!isAllowedProxyDomain(nextUrl)) {
+            console.warn(`[PROXY] Blocked redirect to disallowed domain: ${nextUrl}`);
+            if (!res.headersSent) res.status(403).send('Proxy: Redirect domain not allowed');
+            return;
           }
           return proxyRequest(nextUrl, depth + 1);
         }
@@ -357,11 +429,11 @@ app.get('/api/proxy', async (req, res) => {
         });
       }).on('error', (err) => {
         console.error('Proxy request error:', err.message);
-        if (!res.headersSent) res.status(500).send(err.message);
+        if (!res.headersSent) res.status(500).send('Proxy request failed');
       });
     } catch (err) {
       console.error('Proxy setup error:', err.message);
-      if (!res.headersSent) res.status(500).send(err.message);
+      if (!res.headersSent) res.status(500).send('Proxy setup failed');
     }
   };
 
@@ -572,6 +644,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\x1b[32m✓\x1b[0m Anikage API server running at http://localhost:${PORT}`);
+// SECURITY: Bind to localhost only to prevent network exposure (VULN-13)
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`\x1b[32m✓\x1b[0m Anikage API server running at http://127.0.0.1:${PORT}`);
 });

@@ -229,8 +229,21 @@ export function AnimeApp() {
         if (match) score = parseInt(match[1]);
         if (q.toLowerCase().includes('multi') || q.toLowerCase().includes('auto')) score = 2000; // Prefer multi-quality
         
-        if (provider.toLowerCase().includes('yt-mp4')) {
-          score += 10000; // Give yt-mp4 the highest priority
+        // Provider priority (matching original ani-cli order):
+        // 1. wixmp/Default (best quality, multi-resolution)
+        // 2. fast4speed (direct mp4)
+        // 3. mp4upload
+        const prov = provider.toLowerCase();
+        if (prov.includes('default') || prov.includes('luf-mp4')) {
+          score += 10000; // wixmp/Default gets highest priority
+        } else if (prov.includes('fast4speed') || prov.includes('yt-mp4')) {
+          score += 8000;
+        } else if (prov.includes('s-mp4') || prov.includes('sl-mp4')) {
+          score += 6000; // sharepoint
+        } else if (prov.includes('mp4') || prov.includes('mp4upload')) {
+          score += 4000;
+        } else if (prov.includes('ss-hls')) {
+          score += 3000;
         }
         
         return score;
