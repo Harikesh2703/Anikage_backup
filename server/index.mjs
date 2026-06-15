@@ -60,7 +60,13 @@ export function getApi() {
   if (!_api) {
     const userDataPath = process.env.USER_DATA_PATH || join(os.homedir(), '.config', 'Anikage');
     const patchPath = join(userDataPath, 'patches', 'allanime.js');
-    const bundledPath = join(__dirname, '../src/api/aggregator.js');
+    const bundleSrcPath = process.env.NODE_PATH ? join(process.env.NODE_PATH, '../src') : join(__dirname, '../src');
+    
+    // Check if the api folder is packaged with the server patch
+    let bundledPath = join(__dirname, 'api/aggregator.js');
+    if (!require('fs').existsSync(bundledPath)) {
+      bundledPath = join(bundleSrcPath, 'api/aggregator.js');
+    }
     
     const fs = require('fs');
     let apiPath = bundledPath;

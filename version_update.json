@@ -3,15 +3,15 @@
   "app_changelog": "Core Electron update: Performance optimization, custom native player bindings, and automatic fallback improvements.",
   "app_url": "https://github.com/Harikesh2703/Anikage_Updates/releases/download/v1.1.0/Anikage_Setup.exe",
 
-  "scraper_version": "1.1.0",
-  "scraper_changelog": "Critical Mirror Fix: yt-mp4 and Ok mirrors are dead. This update ports the original ani-cli v4.14.1 provider system — adds mp4upload scraping, fast4speed direct links, wixmp/Default m3u8 extraction, and updates the referer to youtu-chan.com. All available providers are now tried instead of being filtered.",
+  "scraper_version": "1.1.1",
+  "scraper_changelog": "Aggregator Update: Fixed Mp4Upload TLS errors and bypassed ISP Deep Packet Inspection for legacy CDNs.",
   "scraper_url": "https://raw.githubusercontent.com/Harikesh2703/Anikage_Updates/main/allanime.js",
 
-  "ui_version": "1.0.2",
-  "ui_changelog": "UI Design Update: Adds glassmorphism notification panel, smooth slide animations, and update progress indicators.",
+  "ui_version": "1.0.3",
+  "ui_changelog": "UI Update: Added Remove Watch History button ('X' on Continue Watching cards) and improved mirror filtering logic to hide blocked ISP streams.",
   "ui_url": "https://raw.githubusercontent.com/Harikesh2703/Anikage_Updates/main/ui-patch.zip",
 
-  "server_version": "1.0.1",
-  "server_changelog": "Server Performance: Adds localized database caching and stream proxy timeout recovery.",
+  "server_version": "1.0.2",
+  "server_changelog": "Server Update: Implemented strict network reachability tests to filter out ISP-blocked video domains. Added REST endpoint for deleting watch history.",
   "server_url": "https://raw.githubusercontent.com/Harikesh2703/Anikage_Updates/main/server-patch.zip"
 }
