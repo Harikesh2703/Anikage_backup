@@ -94,7 +94,20 @@ export function HomeView({ onCardClick, onInfoClick }: HomeViewProps) {
         {history.length > 0 && (
           <AnimeRow title="Continue Watching" subtitle="Resume where you left off">
             {history.map((item) => (
-              <AnimeCard key={item.id} anime={item} onCardClick={onCardClick} onInfoClick={onInfoClick} />
+              <AnimeCard 
+                key={item.id} 
+                anime={item} 
+                onCardClick={onCardClick} 
+                onInfoClick={onInfoClick} 
+                onRemoveHistory={async (anime) => {
+                  try {
+                    await api.removeHistory(anime.id);
+                    setHistory(prev => prev.filter(a => a.id !== anime.id));
+                  } catch (e) {
+                    console.error("Failed to remove history", e);
+                  }
+                }}
+              />
             ))}
           </AnimeRow>
         )}

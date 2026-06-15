@@ -82,14 +82,29 @@ db.serialize(() => {
   });
 });
 
+// Cache TTL: 5 days (stream URLs contain auth tokens that eventually expire)
+const CACHE_TTL_MS = 5 * 24 * 60 * 60 * 1000;
+
 export const db_helper = {
-  // Link caching
+  // Link caching with TTL expiration
   getLinksFromCache: (key) => {
     return new Promise((resolve, reject) => {
-      const sql = `SELECT payload FROM link_cache WHERE key = ?`;
+      const sql = `SELECT payload, created_at FROM link_cache WHERE key = ?`;
       db.get(sql, [key], (err, row) => {
-        if (err) reject(err);
-        else resolve(row ? JSON.parse(row.payload) : null);
+        if (err) return reject(err);
+        if (!row) return resolve(null);
+
+        // Check if cache entry has expired
+        const createdAt = new Date(row.created_at + 'Z').getTime();
+        const age = Date.now() - createdAt;
+        if (age > CACHE_TTL_MS) {
+          // Auto-delete expired entry
+          db.run(`DELETE FROM link_cache WHERE key = ?`, [key], () => {});
+          console.log(`[CACHE] Expired entry evicted: ${key} (age: ${Math.round(age / 60000)}min)`);
+          return resolve(null);
+        }
+
+        resolve(JSON.parse(row.payload));
       });
     });
   },
@@ -254,6 +269,17 @@ export const db_helper = {
           title: row.title,
           tags: row.genres ? row.genres.split(',') : [],
         })));
+      });
+    });
+  },
+
+  // Remove history for a specific anime
+  removeHistory: (animeId) => {
+    return new Promise((resolve, reject) => {
+      const sql = `DELETE FROM watch_history WHERE anime_id = ?`;
+      db.run(sql, [animeId], function(err) {
+        if (err) reject(err);
+        else resolve();
       });
     });
   },

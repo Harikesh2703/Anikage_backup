@@ -3,7 +3,7 @@ app.name = 'Anikage';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -447,6 +447,14 @@ async function installPatchInternal({ url, type = 'scraper', version }) {
       // General custom patch installation!
       // 'type' is the filename (e.g. 'test.js')
       const targetPath = path.join(patchesDir, type);
+      
+      // SECURITY: Validate path stays within patches directory (VULN-08)
+      const resolvedTarget = path.resolve(targetPath);
+      const resolvedPatches = path.resolve(patchesDir);
+      if (!resolvedTarget.startsWith(resolvedPatches + path.sep) && resolvedTarget !== resolvedPatches) {
+        throw new Error(`Path traversal attempt blocked: "${type}" resolves outside patches directory`);
+      }
+      
       const targetDir = path.dirname(targetPath);
       if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 
@@ -489,25 +497,34 @@ ipcMain.handle('patch-scraper', async (event, { url, type = 'scraper', version }
 });
 
 // Helper to extract zip files using native OS commands
+// SECURITY: Use execFile with argument arrays to prevent command injection (VULN-14)
 function extractZip(zipPath, destDir) {
   return new Promise((resolve, reject) => {
     const isWindows = process.platform === 'win32';
-    let cmd;
     if (isWindows) {
-      cmd = `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${destDir}' -Force"`;
+      execFile('powershell', [
+        '-Command',
+        `Expand-Archive -Path '${zipPath}' -DestinationPath '${destDir}' -Force`
+      ], (err, stdout, stderr) => {
+        if (err) {
+          writeLog(`[Unzip Error] Extraction failed: ${err.message}. Stderr: ${stderr}`);
+          reject(new Error(stderr || err.message));
+        } else {
+          writeLog(`[Unzip] Extracted ${zipPath} successfully to ${destDir}`);
+          resolve();
+        }
+      });
     } else {
-      cmd = `unzip -o "${zipPath}" -d "${destDir}"`;
+      execFile('unzip', ['-o', zipPath, '-d', destDir], (err, stdout, stderr) => {
+        if (err) {
+          writeLog(`[Unzip Error] Extraction failed: ${err.message}. Stderr: ${stderr}`);
+          reject(new Error(stderr || err.message));
+        } else {
+          writeLog(`[Unzip] Extracted ${zipPath} successfully to ${destDir}`);
+          resolve();
+        }
+      });
     }
-
-    exec(cmd, (err, stdout, stderr) => {
-      if (err) {
-        writeLog(`[Unzip Error] Extraction failed: ${err.message}. Stderr: ${stderr}`);
-        reject(new Error(stderr || err.message));
-      } else {
-        writeLog(`[Unzip] Extracted ${zipPath} successfully to ${destDir}`);
-        resolve();
-      }
-    });
   });
 }
 
@@ -925,10 +942,24 @@ ipcMain.handle('export-db', async () => {
         });
       });
       
+      // SECURITY: Validate table and column names against a whitelist to prevent SQL injection (VULN-04)
+      const ALLOWED_TABLES = ['watch_history', 'metadata_cache', 'link_cache', 'downloads', 'app_settings'];
+      const ALLOWED_COLUMNS = {
+        watch_history: ['anime_id', 'title', 'cover_image', 'last_episode', 'genres', 'progress_percent', 'current_time', 'duration', 'updated_at'],
+        metadata_cache: ['url', 'resolution', 'updated_at'],
+        link_cache: ['key', 'payload', 'size', 'created_at'],
+        downloads: ['id', 'anime_id', 'anime_title', 'cover_image', 'episode_number', 'quality', 'status', 'progress', 'downloaded_segments', 'total_segments', 'local_path', 'temp_dir', 'error_message', 'created_at', 'completed_at', 'stream_url'],
+        app_settings: ['key', 'value']
+      };
+      
       const backupData = {};
       for (const table of tables) {
+        if (!ALLOWED_TABLES.includes(table)) {
+          writeLog(`[Export] Skipping unknown table: ${table}`);
+          continue;
+        }
         backupData[table] = await new Promise((res, rej) => {
-          db.all(`SELECT * FROM ${table}`, (err, rows) => {
+          db.all(`SELECT * FROM "${table}"`, (err, rows) => {
             if (err) rej(err); else res(rows);
           });
         });
@@ -980,16 +1011,41 @@ ipcMain.handle('import-db', async () => {
       const { default: sqlite3 } = await import('sqlite3');
       const db = new sqlite3.Database(targetPath);
       
+      // SECURITY: Validate table and column names to prevent SQL injection (VULN-04)
+      const ALLOWED_TABLES = ['watch_history', 'metadata_cache', 'link_cache', 'downloads', 'app_settings'];
+      const ALLOWED_COLUMNS = {
+        watch_history: ['anime_id', 'title', 'cover_image', 'last_episode', 'genres', 'progress_percent', 'current_time', 'duration', 'updated_at'],
+        metadata_cache: ['url', 'resolution', 'updated_at'],
+        link_cache: ['key', 'payload', 'size', 'created_at'],
+        downloads: ['id', 'anime_id', 'anime_title', 'cover_image', 'episode_number', 'quality', 'status', 'progress', 'downloaded_segments', 'total_segments', 'local_path', 'temp_dir', 'error_message', 'created_at', 'completed_at', 'stream_url'],
+        app_settings: ['key', 'value']
+      };
+      
       db.serialize(() => {
         for (const [table, rows] of Object.entries(backupData)) {
           if (!Array.isArray(rows) || rows.length === 0) continue;
           
+          // Validate table name against whitelist
+          if (!ALLOWED_TABLES.includes(table)) {
+            writeLog(`[Import] Skipping unknown table: ${table}`);
+            continue;
+          }
+          
           const cols = Object.keys(rows[0]);
-          const placeholders = cols.map(() => '?').join(', ');
-          const stmt = db.prepare(`REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`);
+          // Validate all column names against the whitelist for this table
+          const allowedCols = ALLOWED_COLUMNS[table] || [];
+          const safeCols = cols.filter(c => allowedCols.includes(c));
+          if (safeCols.length === 0) {
+            writeLog(`[Import] Skipping table ${table}: no valid columns found`);
+            continue;
+          }
+          
+          const quotedCols = safeCols.map(c => `"${c}"`).join(', ');
+          const placeholders = safeCols.map(() => '?').join(', ');
+          const stmt = db.prepare(`REPLACE INTO "${table}" (${quotedCols}) VALUES (${placeholders})`);
           
           for (const row of rows) {
-            stmt.run(cols.map(c => row[c]));
+            stmt.run(safeCols.map(c => row[c]));
           }
           stmt.finalize();
         }

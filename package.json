@@ -26,6 +26,8 @@
   "license": "GPL-3.0",
   "dependencies": {
     "@consumet/extensions": "^1.8.8",
+    "aniwatch": "^1.0.0",
+    "better-ani-scraped": "^1.0.0",
     "chalk": "^4.1.2",
     "cli-progress": "^3.12.0",
     "commander": "^11.1.0",
@@ -74,7 +76,7 @@
       ],
       "artifactName": "Anikage",
       "category": "Video",
-      "maintainer": "HERWIN VG <contact@anikage.com>",
+      "maintainer": "Harikesh <harikesh27srichandran@gmail.com>",
       "synopsis": "Premium Anime Streaming Desktop Client"
     },
     "win": {

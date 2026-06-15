@@ -98,6 +98,9 @@ export const api = {
       duration
     }),
 
+  removeHistory: (animeId: string) =>
+    fetch(`${API_BASE}/history/${animeId}`, { method: 'DELETE' }).then(res => res.json()),
+
   checkUpdates: () => {
     // @ts-ignore
     if (window.electron) {

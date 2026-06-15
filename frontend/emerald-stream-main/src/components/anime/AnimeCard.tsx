@@ -6,9 +6,10 @@ interface AnimeCardProps {
   className?: string;
   onCardClick?: (anime: AnimeItem) => void;
   onInfoClick?: (anime: AnimeItem) => void;
+  onRemoveHistory?: (anime: AnimeItem) => void;
 }
 
-export function AnimeCard({ anime, className = '', onCardClick, onInfoClick }: AnimeCardProps) {
+export function AnimeCard({ anime, className = '', onCardClick, onInfoClick, onRemoveHistory }: AnimeCardProps) {
   function handlePlay() {
     onCardClick?.(anime);
   }
@@ -67,7 +68,23 @@ export function AnimeCard({ anime, className = '', onCardClick, onInfoClick }: A
         )}
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-3 pb-4">
+      {onRemoveHistory && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemoveHistory(anime);
+          }}
+          className="absolute top-2 right-2 w-7 h-7 bg-black/60 hover:bg-red-500/80 rounded-full flex items-center justify-center text-white/80 hover:text-white transition-colors z-20"
+          title="Remove from history"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      )}
+
+      <div className="absolute bottom-0 left-0 right-0 p-3 pb-4 pointer-events-none">
         <h3 className="text-sm font-semibold text-foreground truncate">{anime.title}</h3>
         {anime.lastEpisode ? (
           <p className="text-[11px] text-primary font-bold mt-0.5">

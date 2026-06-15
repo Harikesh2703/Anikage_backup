@@ -85,11 +85,7 @@ class AllAnimeAPI {
           'Origin': 'https://youtu-chan.com',
           'Accept': '*/*',
           'Accept-Language': 'en-US,en;q=0.9'
-        },
-        rejectUnauthorized: false,
-        secureOptions: 0x40000000,
-        ciphers: 'ALL',
-        minVersion: 'TLSv1'
+        }
       };
       
       protocol.get(url, options, (res) => {
@@ -204,7 +200,6 @@ class AllAnimeAPI {
       sourceUrls.forEach(source => {
         const sourceUrl = source.sourceUrl?.replace(/^--/, '');
         const sourceName = source.sourceName;
-        // Keep all sources instead of just yt-mp4
         if (sourceUrl && sourceName) {
           sources[sourceName] = sourceUrl;
         }

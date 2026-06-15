@@ -60,7 +60,7 @@ export function getApi() {
   if (!_api) {
     const userDataPath = process.env.USER_DATA_PATH || join(os.homedir(), '.config', 'Anikage');
     const patchPath = join(userDataPath, 'patches', 'allanime.js');
-    const bundledPath = join(__dirname, '../src/api/allanime.js');
+    const bundledPath = join(__dirname, '../src/api/aggregator.js');
     
     const fs = require('fs');
     let apiPath = bundledPath;
@@ -133,6 +133,49 @@ async function probeMetadata(url) {
         resolve(res);
       }
     });
+  });
+}
+
+/**
+ * Verify if a mirror URL is reachable (bypasses ISP DPI blocks)
+ */
+async function verifyMirrorReachability(url) {
+  return new Promise((resolve) => {
+    try {
+      const parsedUrl = new URL(url.startsWith('//') ? 'https:' + url : url);
+      const protocol = parsedUrl.protocol === 'https:' ? require('https') : require('http');
+      
+      const timer = setTimeout(() => {
+        resolve(false);
+      }, 5000); // 5 second max wait for connection
+
+      const req = protocol.request({
+        method: 'HEAD',
+        hostname: parsedUrl.hostname,
+        path: parsedUrl.pathname + parsedUrl.search,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0'
+        },
+        rejectUnauthorized: false,
+        secureOptions: 0x40000000,
+        ciphers: 'ALL',
+        minVersion: 'TLSv1'
+      }, res => {
+        clearTimeout(timer);
+        // Any HTTP status means we connected successfully
+        resolve(true);
+      });
+      
+      req.on('error', err => { 
+        clearTimeout(timer); 
+        // Strict check: if it fails TLS handshake due to ISP block, filter it out so UI doesn't break
+        resolve(false); 
+      });
+      
+      req.end();
+    } catch (e) {
+      resolve(false);
+    }
   });
 }
 
@@ -242,6 +285,17 @@ app.post('/api/history', async (req, res) => {
   }
 });
 
+// DELETE /api/history/:animeId
+app.delete('/api/history/:animeId', async (req, res) => {
+  try {
+    await db_helper.removeHistory(req.params.animeId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('DELETE /api/history/:animeId error:', err.message);
+    res.status(500).json({ error: 'Failed to remove watch history' });
+  }
+});
+
 
 // GET /api/sources/:showId/:episode
 app.get('/api/sources/:showId/:episode', async (req, res) => {
@@ -265,10 +319,24 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
     const { sources, fallback } = await api.getEpisodeEmbedUrls(showId, episode);
     console.log(`[STREAM] Raw Embed Sources:`, Object.keys(sources));
     
-    // Log all available providers (no filtering — try all mirrors like original ani-cli)
-    console.log(`[STREAM] Available Embed Sources:`, Object.keys(sources));
+    // Removed yt-mp4 filter to allow multi-scraper aggregator to pass its own sources
+    console.log(`[STREAM] Embed Sources:`, Object.keys(sources));
     
-    const links = await api.generateLinks(sources);
+    // Pass showId to generateLinks so aggregator knows which scraper to route to
+    const links = await api.generateLinks(sources, showId);
+    
+    // Background fetch other scrapers and lump all the mirrors if title is provided
+    if (req.query.title && typeof api.getExtraMirrors === 'function') {
+      try {
+        console.log(`[STREAM] Fetching extra mirrors across all scrapers for title: ${req.query.title}`);
+        const extraLinks = await api.getExtraMirrors(req.query.title, episode, showId);
+        if (extraLinks && extraLinks.length > 0) {
+          links.push(...extraLinks);
+        }
+      } catch (err) {
+        console.error('[STREAM] Failed to fetch extra mirrors:', err.message);
+      }
+    }
     console.log(`[STREAM] Extracted Links:`, links.length);
     
     // Filter out duplicates and probe for real resolution if needed
@@ -286,7 +354,7 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
       }
     }
 
-    // Probe all in parallel (max 2s wait total)
+    // Probe metadata for resolution
     await Promise.all(linksToProbe.map(async (link) => {
       const detected = await probeMetadata(link.url);
       if (detected !== 'unknown') {
@@ -294,8 +362,20 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
       }
     }));
 
+    // Filter out ISP-blocked and completely dead mirrors before passing to UI
+    console.log('[STREAM] Filtering out dead/ISP-blocked mirrors...');
+    const reachableLinks = [];
+    await Promise.all(uniqueLinks.map(async (link) => {
+      const isReachable = await verifyMirrorReachability(link.url);
+      if (isReachable) {
+        reachableLinks.push(link);
+      } else {
+        console.log(`[STREAM] Dropped blocked mirror: ${link.provider} (${link.url.substring(0, 30)}...)`);
+      }
+    }));
+
     // Sort links by quality (descending)
-    const sortedLinks = uniqueLinks.sort((a, b) => {
+    const sortedLinks = reachableLinks.sort((a, b) => {
       const qA = parseInt(a.quality) || 0;
       const qB = parseInt(b.quality) || 0;
       return qB - qA;
@@ -389,7 +469,10 @@ app.get('/api/proxy', async (req, res) => {
           'Accept': '*/*',
           'Range': req.headers.range || 'bytes=0-',
         },
-        rejectUnauthorized: false // Video CDNs often have cert issues; acceptable for local desktop app
+        rejectUnauthorized: false, // Video CDNs often have cert issues; acceptable for local desktop app
+        secureOptions: 0x40000000, // SSL_OP_LEGACY_SERVER_CONNECT
+        ciphers: 'ALL',
+        minVersion: 'TLSv1'
       };
 
       protocol.get(url, options, (proxyRes) => {
@@ -448,7 +531,7 @@ app.get('/api/watch/:showId/:episode', async (req, res) => {
     console.log(`[WATCH] Redirect request for ${showId} ep ${episode}`);
     
     const { sources, fallback } = await api.getEpisodeEmbedUrls(showId, episode);
-    const links = await api.generateLinks(sources);
+    const links = await api.generateLinks(sources, showId);
     const best = api.selectQuality(links, 'best');
     
     const targetUrl = best ? best.url : fallback;
