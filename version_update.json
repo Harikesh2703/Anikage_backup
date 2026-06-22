@@ -7,8 +7,8 @@
   "scraper_changelog": "Hotfix: Added JS unpacker for Fm-Hls and updated User-Agent to bypass Cloudflare.",
   "scraper_url": "https://raw.githubusercontent.com/Harikesh2703/Anikage_Updates/main/allanime.js",
 
-  "ui_version": "1.0.4",
-  "ui_changelog": "UI Update: Added instructional overlay for iframe fallbacks and temporarily disabled batch downloads with a professional notice.",
+  "ui_version": "1.0.5",
+  "ui_changelog": "Hotfix: Fixed CORS issues with AppImage UI rendering and improved patch extraction reliability.",
   "ui_url": "https://raw.githubusercontent.com/Harikesh2703/Anikage_Updates/main/ui-patch.zip",
 
   "server_version": "1.0.3",

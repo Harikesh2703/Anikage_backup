@@ -218,13 +218,9 @@ function createWindow() {
     }
   });
 
-  const patchUiPath = path.join(userDataPath, 'patches/ui/index.html');
-
   const startUrl = isDev 
     ? 'http://localhost:8080' 
-    : (fs.existsSync(patchUiPath)
-        ? patchUiPath
-        : path.join(__dirname, 'frontend/emerald-stream-main/dist/index.html'));
+    : 'http://localhost:3001';
 
   const waitForServer = async (retries = 20) => {
     writeLog('[Main] Probing backend server on port 3001...');
@@ -268,16 +264,8 @@ function createWindow() {
       writeLog(`[Main] Backend probe took ${Date.now() - serverStartTime}ms.`);
     }
 
-    if (isDev) {
-      writeLog(`[Main] Loading URL: ${startUrl}`);
-      mainWindow.loadURL(startUrl);
-    } else {
-      const absoluteDistPath = fs.existsSync(patchUiPath)
-        ? patchUiPath
-        : path.resolve(__dirname, 'frontend/emerald-stream-main/dist/index.html');
-      writeLog(`[Main] Loading frontend from: ${absoluteDistPath}`);
-      mainWindow.loadFile(absoluteDistPath).catch(err => writeLog(`[LOAD ERROR] ${err.message}`));
-    }
+    writeLog(`[Main] Loading URL: ${startUrl}`);
+    mainWindow.loadURL(startUrl).catch(err => writeLog(`[LOAD ERROR] ${err.message}`));
     
     writeLog(`[Main] Total frontend load sequence took ${Date.now() - startTime}ms.`);
 
@@ -545,8 +533,15 @@ async function installPatchInternal({ url, type = 'scraper', version }) {
         await extractZip(tempZipPath, uiDir);
         fs.unlinkSync(tempZipPath);
       } catch (fetchErr) {
-        writeLog(`[Update Warning] Fetching/Extracting UI patch failed: ${fetchErr.message}. Simulating local patch creation for offline testing...`);
-        fs.writeFileSync(path.join(uiDir, 'index.html'), `<!-- Mock patched UI v${version} -->`);
+        writeLog(`[Update Warning] Fetching/Extracting UI patch failed: ${fetchErr.message}.`);
+        if (isDev) {
+          writeLog(`Simulating local patch creation for offline testing...`);
+          fs.writeFileSync(path.join(uiDir, 'index.html'), `<!-- Mock patched UI v${version} -->`);
+        } else {
+          // If in production and unzip fails, delete the folder so we seamlessly fallback to internal UI!
+          if (fs.existsSync(uiDir)) fs.rmSync(uiDir, { recursive: true, force: true });
+          throw fetchErr;
+        }
       }
 
       await updateLocalConfig('ui_version', version);
@@ -570,8 +565,14 @@ async function installPatchInternal({ url, type = 'scraper', version }) {
         await extractZip(tempZipPath, serverDir);
         fs.unlinkSync(tempZipPath);
       } catch (fetchErr) {
-        writeLog(`[Update Warning] Fetching/Extracting Server patch failed: ${fetchErr.message}. Simulating local patch creation for offline testing...`);
-        fs.writeFileSync(path.join(serverDir, 'index.mjs'), `// Mock patched Server v${version}`);
+        writeLog(`[Update Warning] Fetching/Extracting Server patch failed: ${fetchErr.message}.`);
+        if (isDev) {
+          writeLog(`Simulating local patch creation for offline testing...`);
+          fs.writeFileSync(path.join(serverDir, 'index.mjs'), `// Mock patched Server v${version}`);
+        } else {
+          if (fs.existsSync(serverDir)) fs.rmSync(serverDir, { recursive: true, force: true });
+          throw fetchErr;
+        }
       }
 
       await updateLocalConfig('server_version', version);

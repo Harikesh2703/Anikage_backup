@@ -54,6 +54,27 @@ app.use(express.json({ limit: '1mb' }));
 // Health check
 app.get('/api/ping', (req, res) => res.json({ status: 'ok' }));
 
+// SERVE FRONTEND UI
+const userDataPath = process.env.USER_DATA_PATH || join(os.homedir(), '.config', 'Anikage');
+const patchUiPath = join(userDataPath, 'patches', 'ui');
+const defaultUiPath = join(__dirname, '../frontend/emerald-stream-main/dist');
+
+const fs = require('fs');
+if (process.env.NODE_ENV !== 'development' && fs.existsSync(join(patchUiPath, 'index.html'))) {
+  console.log('\x1b[35m[Hot-Patch]\x1b[0m Serving patched UI from:', patchUiPath);
+  app.use(express.static(patchUiPath));
+  // SPA fallback
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/')) res.sendFile(join(patchUiPath, 'index.html'));
+  });
+} else {
+  app.use(express.static(defaultUiPath));
+  // SPA fallback
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/')) res.sendFile(join(defaultUiPath, 'index.html'));
+  });
+}
+
 // Lazy-load allanime API
 let _api = null;
 export function getApi() {
@@ -63,16 +84,16 @@ export function getApi() {
     const bundleSrcPath = process.env.NODE_PATH ? join(process.env.NODE_PATH, '../src') : join(__dirname, '../src');
     
     // Check if the api folder is packaged with the server patch
-    let bundledPath = join(__dirname, 'api/aggregator.js');
+    let bundledPath = join(__dirname, 'api/allanime.js');
     if (!require('fs').existsSync(bundledPath)) {
-      bundledPath = join(bundleSrcPath, 'api/aggregator.js');
+      bundledPath = join(bundleSrcPath, 'api/allanime.js');
     }
     
     const fs = require('fs');
     let apiPath = bundledPath;
 
     // SHADOW LOADING: Check for a hot-patch first
-    if (fs.existsSync(patchPath)) {
+    if (process.env.NODE_ENV !== 'development' && fs.existsSync(patchPath)) {
       console.log('\x1b[35m[Hot-Patch]\x1b[0m Loading patched scraper from:', patchPath);
       apiPath = patchPath;
     }
@@ -309,15 +330,20 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
     const { showId, episode } = req.params;
     const cacheKey = `${showId}:${episode}`;
 
-    // Try reading from cache first
-    try {
-      const cached = await db_helper.getLinksFromCache(cacheKey);
-      if (cached) {
-        console.log(`[CACHE HIT] Serving sources for ${showId} ep ${episode} from SQLite cache`);
-        return res.json(cached);
+    const disableCache = await db_helper.getSetting('disable_cache', 'false');
+    const isCacheEnabled = disableCache !== 'true';
+
+    // Try reading from cache first if enabled
+    if (isCacheEnabled) {
+      try {
+        const cached = await db_helper.getLinksFromCache(cacheKey);
+        if (cached) {
+          console.log(`[CACHE HIT] Serving sources for ${showId} ep ${episode} from SQLite cache`);
+          return res.json(cached);
+        }
+      } catch (cacheErr) {
+        console.error('[CACHE ERROR] Read failed:', cacheErr.message);
       }
-    } catch (cacheErr) {
-      console.error('[CACHE ERROR] Read failed:', cacheErr.message);
     }
 
     const api = getApi();
@@ -328,21 +354,7 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
     // Removed yt-mp4 filter to allow multi-scraper aggregator to pass its own sources
     console.log(`[STREAM] Embed Sources:`, Object.keys(sources));
     
-    // Pass showId to generateLinks so aggregator knows which scraper to route to
-    const links = await api.generateLinks(sources, showId);
-    
-    // Background fetch other scrapers and lump all the mirrors if title is provided
-    if (req.query.title && typeof api.getExtraMirrors === 'function') {
-      try {
-        console.log(`[STREAM] Fetching extra mirrors across all scrapers for title: ${req.query.title}`);
-        const extraLinks = await api.getExtraMirrors(req.query.title, episode, showId);
-        if (extraLinks && extraLinks.length > 0) {
-          links.push(...extraLinks);
-        }
-      } catch (err) {
-        console.error('[STREAM] Failed to fetch extra mirrors:', err.message);
-      }
-    }
+    const links = await api.generateLinks(sources);
     console.log(`[STREAM] Extracted Links:`, links.length);
     
     // Filter out duplicates and probe for real resolution if needed
@@ -387,6 +399,8 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
       return qB - qA;
     });
 
+    console.log(`[STREAM] Sorted Links (${sortedLinks.length}):`, sortedLinks);
+
     let responsePayload = sortedLinks.length === 0
       ? { 
           sources: [{ url: fallback, quality: 'browser', provider: 'Fallback' }],
@@ -397,10 +411,12 @@ app.get('/api/sources/:showId/:episode', async (req, res) => {
           fallback
         };
 
-    // Save to cache in the background
-    db_helper.saveLinksToCache(cacheKey, responsePayload)
-      .then(() => console.log(`[CACHE] Saved links for ${showId} ep ${episode}`))
-      .catch(cacheErr => console.error('[CACHE ERROR] Write failed:', cacheErr.message));
+    if (isCacheEnabled && sortedLinks.length > 0) {
+      // Save to cache in the background
+      db_helper.saveLinksToCache(cacheKey, responsePayload)
+        .then(() => console.log(`[CACHE] Saved links for ${showId} ep ${episode}`))
+        .catch(cacheErr => console.error('[CACHE ERROR] Write failed:', cacheErr.message));
+    }
 
     res.json(responsePayload);
   } catch (err) {
@@ -684,6 +700,50 @@ app.post('/api/settings/ffmpeg-path', async (req, res) => {
   }
 });
 
+// POST /api/settings/cookies - Sync session cookies from Electron
+app.post('/api/settings/cookies', async (req, res) => {
+  try {
+    const { cookies } = req.body;
+    await db_helper.saveSetting('session_cookies_obj', JSON.stringify(cookies));
+    const api = getApi();
+    api.cookieObj = cookies;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/settings/cache-status - Get link cache disabled status
+app.get('/api/settings/cache-status', async (req, res) => {
+  try {
+    const disabled = await db_helper.getSetting('disable_cache', 'false');
+    res.json({ disabled: disabled === 'true' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/settings/cache-status - Set link cache disabled status
+app.post('/api/settings/cache-status', async (req, res) => {
+  try {
+    const { disabled } = req.body;
+    await db_helper.saveSetting('disable_cache', disabled ? 'true' : 'false');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/settings/clear-cache - Clear SQLite link cache and metadata cache
+app.post('/api/settings/clear-cache', async (req, res) => {
+  try {
+    await db_helper.clearCache();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // SSE Event Stream for download progress and state updates
 const sseClients = new Set();
 
@@ -736,4 +796,13 @@ app.use((req, res, next) => {
 // SECURITY: Bind to localhost only to prevent network exposure (VULN-13)
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`\x1b[32m✓\x1b[0m Anikage API server running at http://127.0.0.1:${PORT}`);
+  db_helper.getSetting('session_cookies_obj', '').then(data => {
+    if (data) {
+      const api = getApi();
+      try {
+        api.cookieObj = JSON.parse(data);
+        console.log('[Main] Restored session cookie object from database.');
+      } catch (e) {}
+    }
+  }).catch(() => {});
 });
