@@ -388,7 +388,7 @@ export function VideoPlayer({
                     if (solved) {
                       showToast("Authentication successful! Refreshing mirrors...", "success");
                       // Re-trigger the fetch sequence
-                      fetchStream();
+                      onEpisodeChange(episode);
                     } else {
                       showToast("Authentication was cancelled or failed.", "error");
                     }
