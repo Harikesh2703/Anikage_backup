@@ -335,6 +335,7 @@ export async function processQueue() {
     
     for (let i = 0; i < Math.min(slotsAvailable, queuedTasks.length); i++) {
       const task = queuedTasks[i];
+      if (activeDownloads.has(task.id)) continue;
       startDownloadTask(task);
     }
   } catch (err) {
@@ -348,6 +349,8 @@ export async function processQueue() {
  * Start/Resume a download task in the background
  */
 async function startDownloadTask(task) {
+  if (activeDownloads.has(task.id)) return;
+  
   console.log(`[DOWNLOAD MANAGER] Starting task: ${task.animeTitle} Ep ${task.episodeNumber}`);
   
   const abortController = new AbortController();
@@ -576,8 +579,9 @@ async function startDownloadTask(task) {
             startBytes = fs.statSync(finalOutputPath).size;
           }
 
-          // Probing total length
+          // Probing total length and content type
           let totalBytes = 0;
+          let contentType = '';
           await new Promise((resolve) => {
             const protocol = finalUrl.startsWith('https') ? https : http;
             const options = {
@@ -586,9 +590,14 @@ async function startDownloadTask(task) {
             };
             protocol.request(finalUrl, options, (res) => {
               totalBytes = parseInt(res.headers['content-length'] || '0');
+              contentType = res.headers['content-type'] || '';
               resolve();
             }).on('error', () => resolve()).end();
           });
+
+          if (contentType.includes('text/html')) {
+            throw new Error('URL returned an HTML page (iframe) instead of a video file. This mirror cannot be natively downloaded.');
+          }
 
           task.initialBytes = startBytes;
           task.sessionBytes = 0;
@@ -672,8 +681,10 @@ async function startDownloadTask(task) {
     }
   }
 
-  // Trigger processQueue to run the next task
-  processQueue();
+  // Trigger processQueue to run the next task with a 4.5s delay to prevent API rate-limit cascades
+  setTimeout(() => {
+    processQueue();
+  }, 4500);
 }
 
 /**

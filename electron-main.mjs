@@ -55,17 +55,19 @@ app.on('will-quit', () => {
 async function startServer() {
   writeLog('--- APPLICATION STARTUP ---');
   
-  // Resolve server path asynchronously to avoid blocking UI loading
   let resolvedServerPath;
-  try {
-    await fs.promises.access(patchServerPath, fs.constants.F_OK);
-    resolvedServerPath = patchServerPath;
-    writeLog('[Main] Patched server script found. Booting patched server.');
-  } catch (e) {
-    resolvedServerPath = app.isPackaged 
-      ? path.join(process.resourcesPath, 'app.asar.unpacked/server/index.mjs') 
-      : path.join(__dirname, 'server/index.mjs');
-    writeLog('[Main] Booting built-in server.');
+  if (!isDev) {
+    try {
+      await fs.promises.access(patchServerPath, fs.constants.F_OK);
+      resolvedServerPath = patchServerPath;
+      writeLog('[Main] Patched server script found. Booting patched server.');
+    } catch (e) {
+      resolvedServerPath = path.join(process.resourcesPath, 'app.asar.unpacked/server/index.mjs');
+      writeLog('[Main] Booting built-in server.');
+    }
+  } else {
+    resolvedServerPath = path.join(__dirname, 'server/index.mjs');
+    writeLog('[Main] Dev mode: Booting local built-in server.');
   }
 
   writeLog(`Server Path: ${resolvedServerPath}`);
@@ -140,6 +142,80 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js')
     },
     autoHideMenuBar: true
+  });
+
+  // Remove X-Frame-Options and CSP to allow external iframes to load without ERR_BLOCKED_BY_RESPONSE
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = Object.fromEntries(
+      Object.entries(details.responseHeaders).filter(
+        ([key]) => !['x-frame-options', 'content-security-policy'].includes(key.toLowerCase())
+      )
+    );
+    callback({
+      cancel: false,
+      responseHeaders
+    });
+  });
+
+  // Block all popup windows (prevents ads from iframe embedded video players)
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Only allow GitHub links (can add other whitelisted URLs if needed)
+    if (url.includes('github.com')) {
+      require('electron').shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  // Inject CSS and JS into cross-origin iframes to remove invisible ad overlays and auto-play
+  mainWindow.webContents.on('did-frame-finish-load', (e, isMainFrame, frameProcessId, frameRoutingId) => {
+    if (!isMainFrame) {
+      mainWindow.webContents.executeJavaScriptInIsolatedWorld(frameRoutingId, 999, [
+        { code: `
+          // Remove invisible overlay click-jackers common on embed players
+          const removeAds = () => {
+            const overlays = document.querySelectorAll('a[target="_blank"], div[style*="z-index: 2147483647"], div[class*="overlay"]');
+            overlays.forEach(el => el.remove());
+          };
+          setInterval(removeAds, 500);
+          
+          // Auto-click 3 times to consume the invisible ad layers and trigger the actual play button
+          let clicks = 0;
+          const autoClicker = setInterval(() => {
+            // Find the play button, or fallback to the body center if the ad is full-screen
+            const playBtn = document.querySelector('.jw-icon-display, .vjs-big-play-button, .plyr__control--overlaid, video, iframe');
+            if (playBtn) {
+              playBtn.click();
+            } else {
+              document.body.click();
+            }
+            clicks++;
+            if (clicks >= 3) {
+              clearInterval(autoClicker);
+            }
+          }, 800);
+        `}
+      ]).catch(() => {});
+    }
+  });
+
+  // Sync cookies from Electron (iframe) to Node.js backend scraper
+  mainWindow.webContents.session.cookies.on('changed', async (event, cookie, cause, removed) => {
+    if (!removed && (cookie.domain.includes('allanime') || cookie.domain.includes('allmanga'))) {
+      try {
+        const allCookies = await mainWindow.webContents.session.cookies.get({});
+        const cookieData = {};
+        allCookies.forEach(c => {
+          let domain = c.domain.replace(/^\./, '');
+          if (!cookieData[domain]) cookieData[domain] = [];
+          cookieData[domain].push(`${c.name}=${c.value}`);
+        });
+        fetch('http://localhost:3001/api/settings/cookies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookies: cookieData })
+        }).catch(() => {});
+      } catch (err) {}
+    }
   });
 
   const patchUiPath = path.join(userDataPath, 'patches/ui/index.html');
@@ -246,6 +322,65 @@ app.on('activate', () => {
     createWindow();
   }
 });
+// Handle Cloudflare authentication via invisible/popup window
+ipcMain.handle('solve-captcha', async (event, url) => {
+  return new Promise((resolve) => {
+    const captchaWindow = new BrowserWindow({
+      width: 800,
+      height: 600,
+      title: 'Solving Cloudflare Challenge...',
+      show: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
+      }
+    });
+
+    // Bypass Electron User-Agent checks for Cloudflare Turnstile
+    captchaWindow.webContents.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36");
+
+    captchaWindow.loadURL(url);
+
+    const onCookieChange = async (e, cookie, cause, removed) => {
+      if (!removed && (cookie.domain.includes('allanime') || cookie.domain.includes('allmanga'))) {
+        try {
+          const allCookies = await captchaWindow.webContents.session.cookies.get({});
+          const cookieData = {};
+          allCookies.forEach(c => {
+            let domain = c.domain.replace(/^\./, '');
+            if (!cookieData[domain]) cookieData[domain] = [];
+            cookieData[domain].push(`${c.name}=${c.value}`);
+          });
+          
+          fetch('http://localhost:3001/api/settings/cookies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cookies: cookieData })
+          }).catch(() => {});
+
+          try {
+            captchaSession.cookies.removeListener('changed', onCookieChange);
+          } catch (e) {}
+          setTimeout(() => {
+            if (!captchaWindow.isDestroyed()) captchaWindow.close();
+          }, 1000);
+          resolve(true);
+        } catch (err) {}
+      }
+    };
+
+    const captchaSession = captchaWindow.webContents.session;
+    captchaSession.cookies.on('changed', onCookieChange);
+
+    captchaWindow.on('closed', () => {
+      try {
+        captchaSession.cookies.removeListener('changed', onCookieChange);
+      } catch (e) {}
+      resolve(false);
+    });
+  });
+});
+
 // Handle folder selection for downloads
 ipcMain.handle('select-download-directory', async () => {
   try {

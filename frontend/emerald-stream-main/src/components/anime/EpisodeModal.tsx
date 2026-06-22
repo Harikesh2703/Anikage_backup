@@ -21,6 +21,7 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
   const [selectedEpisodes, setSelectedEpisodes] = useState<Set<string>>(new Set());
   const [downloadQuality, setDownloadQuality] = useState('1080p');
   const [enqueueing, setEnqueueing] = useState(false);
+  const [showDownloadDisabledPopup, setShowDownloadDisabledPopup] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -101,6 +102,34 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
+      {/* Download Disabled Popup */}
+      {showDownloadDisabledPopup && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 cursor-pointer"
+          onClick={() => setShowDownloadDisabledPopup(false)}
+        >
+          <div className="bg-card border border-border p-8 rounded-2xl max-w-md text-center shadow-2xl relative cursor-default" onClick={e => e.stopPropagation()}>
+            <div className="w-16 h-16 bg-orange-500/10 text-orange-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-orange-500/20 relative">
+              <Download className="w-8 h-8 opacity-40" />
+              <X className="w-8 h-8 absolute" />
+            </div>
+            <h3 className="text-xl font-bold text-foreground mb-2">Downloads Temporarily Unavailable</h3>
+            <p className="text-muted-foreground text-sm leading-relaxed mb-6">
+              Currently, our download servers are facing some technical issues due to strict Cloudflare protections from the video providers. We are actively working to fix this as soon as possible in a professional way. 
+            </p>
+            <p className="text-xs text-orange-400/80 mb-6 font-medium">
+              (Streaming is fully functional. Please use the native player.)
+            </p>
+            <button 
+              onClick={() => setShowDownloadDisabledPopup(false)}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground px-8 py-2.5 rounded-full font-bold transition-all hover:scale-105 active:scale-95 shadow-lg w-full"
+            >
+              I Understand
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Modal */}
       <div className="relative z-10 w-full sm:max-w-2xl max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden shadow-2xl transition-all duration-300"
         style={{ background: 'var(--color-card)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -129,7 +158,7 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
                 let episodeToPlay = episodes[0];
                 let isResume = false;
                 
-                if (savedEpisode && episodes.includes(savedEpisode)) {
+                if (savedEpisode && episodes.includes(savedEpisode) && parseFloat(savedEpisode) !== 0) {
                   const savedEpIndex = episodes.indexOf(savedEpisode);
                   if (progressPercent >= 90 && savedEpIndex < episodes.length - 1) {
                     episodeToPlay = episodes[savedEpIndex + 1];
@@ -147,8 +176,8 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
                     style={{ background: 'var(--color-primary)' }}>
                     <Play className="w-3 h-3 fill-current" />
                     {isResume 
-                      ? `Resume Ep ${episodeToPlay} (${progressPercent}%)` 
-                      : `Watch Ep ${episodeToPlay}`
+                      ? `Resume Ep ${episodeToPlay.replace(/^0+(?=\d)/, '')} (${progressPercent}%)` 
+                      : `Watch Ep ${episodeToPlay.replace(/^0+(?=\d)/, '')}`
                     }
                   </button>
                 );
@@ -158,8 +187,7 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
               {!loading && !error && episodes.length > 0 && (
                 <button
                   onClick={() => {
-                    setIsDownloadMode(!isDownloadMode);
-                    setSelectedEpisodes(new Set());
+                    setShowDownloadDisabledPopup(true);
                   }}
                   className={`flex items-center gap-1.5 px-4.5 py-1.5 rounded-full text-xs font-bold border transition-all hover:scale-105 active:scale-95 ${
                     isDownloadMode 
@@ -271,7 +299,7 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
                         : 'bg-muted/40 hover:bg-primary/20 border-border/40 hover:border-primary/20 text-foreground'
                     }`}
                   >
-                    {ep}
+                    {ep.replace(/^0+(?=\d)/, '')}
                     {/* Badge showing selected state */}
                     {isDownloadMode && isSelected && (
                       <div className="absolute top-1 right-1 bg-primary-foreground text-primary rounded-full p-0.5 shadow-sm">
@@ -279,7 +307,7 @@ export function EpisodeModal({ anime, onClose, onWatch, showToast }: EpisodeModa
                       </div>
                     )}
                     {/* Episode watch progress bar */}
-                    {!isDownloadMode && watchProgress && watchProgress.lastEpisode === ep && watchProgress.progressPercent && watchProgress.progressPercent > 0 && (
+                    {!isDownloadMode && watchProgress && watchProgress.lastEpisode === ep && watchProgress.progressPercent !== undefined && watchProgress.progressPercent > 0 && (
                       <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
                         <div className="h-full bg-primary" style={{ width: `${watchProgress.progressPercent}%` }} />
                       </div>

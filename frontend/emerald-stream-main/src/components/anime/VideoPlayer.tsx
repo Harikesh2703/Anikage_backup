@@ -3,7 +3,7 @@ import Hls from 'hls.js';
 import {
   X, Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipBack, SkipForward, Loader2, ChevronLeft, ChevronRight,
-  RotateCcw, ShieldAlert, Server, Download, Check
+  RotateCcw, ShieldAlert, Server, Download, Check, ExternalLink
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { StreamSource } from '@/lib/api';
@@ -38,7 +38,19 @@ export function VideoPlayer({
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoAuthTriggered = useRef(false);
   const initialTimeRef = useRef(initialTime);
+
+  const isIframe = streamUrl && !streamUrl.includes('.m3u8') && !streamUrl.includes('.mp4') && !streamUrl.includes('/api/proxy');
+
+  // Auto-trigger Cloudflare auth once if falling back to iframe
+  useEffect(() => {
+    if (isIframe && !sessionStorage.getItem('cf_auth_done')) {
+      sessionStorage.setItem('cf_auth_done', 'true');
+      const btn = document.getElementById('cf-auth-btn');
+      if (btn) btn.click();
+    }
+  }, [isIframe]);
 
   // Sync ref when stream or episode changes
   useEffect(() => {
@@ -59,6 +71,15 @@ export function VideoPlayer({
   const [showSourceGuide, setShowSourceGuide] = useState(true);
   const [downloadState, setDownloadState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [showLocalPopup, setShowLocalPopup] = useState(false);
+  const [showIframeInstruction, setShowIframeInstruction] = useState(true);
+
+  // Auto-hide iframe instruction after 3 seconds
+  useEffect(() => {
+    if (isIframe && showIframeInstruction) {
+      const timer = setTimeout(() => setShowIframeInstruction(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isIframe, showIframeInstruction]);
 
   const handleDownloadEpisode = async () => {
     setDownloadState('loading');
@@ -91,7 +112,7 @@ export function VideoPlayer({
   const hasPrev = currentEpIndex > 0;
   const hasNext = currentEpIndex < totalEpisodes.length - 1;
 
-  const isIframe = streamUrl && !streamUrl.includes('.m3u8') && !streamUrl.includes('.mp4') && !streamUrl.includes('/api/proxy');
+
 
   // Load stream into video element with HLS.js
   useEffect(() => {
@@ -338,14 +359,49 @@ export function VideoPlayer({
       {/* Video element */}
       <div className="flex-1 relative flex items-center justify-center" onClick={!isIframe ? togglePlay : undefined}>
         {isIframe ? (
-          <iframe
-            src={streamUrl}
-            className="w-full h-full border-0 bg-black"
-            allowFullScreen
-            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-            // More permissive sandbox to avoid 'sad face' errors
-            sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-popups"
-          />
+          <div className="w-full h-full relative group">
+            <iframe
+              src={streamUrl}
+              className="w-full h-full border-0 bg-black relative"
+              allowFullScreen
+              allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            />
+            {/* Highly visible instruction for the user to click through the ads */}
+            {showIframeInstruction && (
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] pointer-events-none bg-black/90 text-emerald-400 font-bold px-8 py-5 rounded-2xl border-4 border-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.8)] text-center animate-[pulse_2s_ease-in-out_infinite]">
+                <p className="text-3xl mb-2 text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">⚠️ ACTION REQUIRED</p>
+                <p className="text-xl text-emerald-300">Please click the play button <span className="text-white text-2xl font-black">3 TIMES</span></p>
+                <p className="text-md text-emerald-500 mt-2">to destroy background ads and start video</p>
+                <p className="text-xs text-gray-400 mt-4 font-normal">(This message will hide automatically)</p>
+              </div>
+            )}
+            {/* Minimal button that only appears on hover so it doesn't look like a mandatory block */}
+            <div className="absolute top-4 right-16 z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              <button
+                id="cf-auth-btn"
+                onClick={async () => {
+                  // @ts-ignore
+                  if (window.electron) {
+                    showToast("Opening authentication window...", "info");
+                    // @ts-ignore
+                    const solved = await window.electron.invoke('solve-captcha', 'https://api.allanime.day/api');
+                    if (solved) {
+                      showToast("Authentication successful! Refreshing mirrors...", "success");
+                      // Re-trigger the fetch sequence
+                      fetchStream();
+                    } else {
+                      showToast("Authentication was cancelled or failed.", "error");
+                    }
+                  }
+                }}
+                className="px-3 py-1.5 bg-black/60 hover:bg-emerald-600/90 text-white/70 hover:text-white rounded-lg font-medium text-xs backdrop-blur-sm transition-all flex items-center gap-2 border border-white/10"
+                title="If the video is blocked by a Cloudflare black screen, click here to authenticate."
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                Fix Cloudflare
+              </button>
+            </div>
+          </div>
         ) : (
           <video
             ref={videoRef}
@@ -535,7 +591,7 @@ export function VideoPlayer({
 
           <div className="hidden lg:flex flex-col items-center">
             <span className="text-white/80 text-sm font-medium truncate max-w-[200px]">
-              {title} — Ep {episode}
+              {title} — Ep {episode.replace(/^0+(?=\d)/, '')}
             </span>
             {allSources[currentSourceIndex]?.provider && (
               <span className="text-primary text-[10px] font-semibold uppercase tracking-wider opacity-85 mt-0.5">
@@ -616,7 +672,7 @@ export function VideoPlayer({
           <div>
             <p className="text-white font-semibold text-sm">{title}</p>
             <div className="flex items-center gap-2">
-              <p className="text-white/50 text-xs">Episode {episode}</p>
+              <p className="text-white/50 text-xs">Episode {episode.replace(/^0+(?=\d)/, '')}</p>
               {allSources[currentSourceIndex]?.provider && (
                 <>
                   <span className="text-white/20 text-xs">•</span>
@@ -639,7 +695,7 @@ export function VideoPlayer({
         <div className="absolute top-4 left-4 z-[60] bg-black/60 px-4 py-2 rounded-lg border border-white/10 shadow-xl pointer-events-none">
           <p className="text-white font-semibold text-sm">{title}</p>
           <div className="flex items-center gap-2">
-            <p className="text-white/50 text-xs">Episode {episode}</p>
+            <p className="text-white/50 text-xs">Episode {episode.replace(/^0+(?=\d)/, '')}</p>
             {allSources[currentSourceIndex]?.provider && (
               <>
                 <span className="text-white/20 text-xs">•</span>
@@ -683,6 +739,7 @@ export function VideoPlayer({
               <span>Next Mirror ({currentSourceIndex + 1}/{allSources.length})</span>
             </button>
           )}
+
           <button onClick={onClose}
             title="Close player"
             className="w-10 h-10 rounded-full bg-black/60 hover:bg-red-500/80 flex items-center justify-center transition-all border border-white/20 shadow-xl"

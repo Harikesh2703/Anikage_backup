@@ -8,9 +8,28 @@ const helpers = require('../utils/helpers');
 
 class AllAnimeAPI {
   constructor() {
-    this.userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0";
+    this.userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
     this.referer = "https://youtu-chan.com";
     this.apiUrl = config.allanimeApi ? `${config.allanimeApi}/api` : "https://api.allanime.day/api";
+    this.cookieObj = {};
+  }
+
+  getCookieStringForUrl(targetUrl) {
+    if (!this.cookieObj) return '';
+    try {
+      const hostname = new URL(targetUrl).hostname;
+      let matchedCookies = [];
+      for (const [domain, cookiesArray] of Object.entries(this.cookieObj)) {
+        if (hostname.includes(domain)) {
+          matchedCookies.push(...cookiesArray);
+        }
+      }
+      const cStr = matchedCookies.join('; ');
+      console.log(`[COOKIES] For ${hostname}: ${cStr.substring(0, 50)}...`);
+      return cStr;
+    } catch (e) {
+      return '';
+    }
   }
 
   decryptTobeparsed(blob) {
@@ -32,9 +51,16 @@ class AllAnimeAPI {
 
   // SECURITY: Use native https request instead of shell-based curl to prevent
   // command injection via crafted URLs or API responses (VULN-02)
-  async executeGraphql(query, variables) {
-    const payload = JSON.stringify({ query, variables });
+  async executeGraphql(query, variables, extensions = null) {
+    const payloadObj = { variables };
+    if (extensions) {
+      payloadObj.extensions = extensions;
+    } else {
+      payloadObj.query = query;
+    }
+    const payload = JSON.stringify(payloadObj);
     const parsedUrl = new URL(this.apiUrl);
+    const baseDomain = config.allanimeBase || 'allanime.day';
     
     return new Promise((resolve, reject) => {
       const options = {
@@ -44,14 +70,25 @@ class AllAnimeAPI {
         method: 'POST',
         headers: {
           'User-Agent': this.userAgent,
-          'Referer': this.referer,
-          'Origin': 'https://youtu-chan.com',
+          'Referer': `https://${baseDomain}/`,
+          'Origin': `https://${baseDomain}`,
           'Accept': 'application/json',
           'Accept-Language': 'en-US,en;q=0.9',
           'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload)
+          'Content-Length': Buffer.byteLength(payload),
+          'Sec-Ch-Ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-site'
         }
       };
+
+      const cStr = this.getCookieStringForUrl(this.apiUrl);
+      if (cStr) {
+        options.headers['Cookie'] = cStr;
+      }
 
       const protocol = parsedUrl.protocol === 'https:' ? https : http;
       const req = protocol.request(options, (res) => {
@@ -75,22 +112,35 @@ class AllAnimeAPI {
   async execGet(url) {
     if (url.startsWith('//')) url = 'https:' + url;
     const parsedUrl = new URL(url);
+    const baseDomain = config.allanimeBase || 'allanime.day';
+    const isApi = url.includes('/api') || url.includes('apivtwo');
     
     return new Promise((resolve, reject) => {
       const protocol = parsedUrl.protocol === 'https:' ? https : http;
       const options = {
         headers: {
           'User-Agent': this.userAgent,
-          'Referer': this.referer,
-          'Origin': 'https://youtu-chan.com',
+          'Referer': isApi ? `https://${baseDomain}/` : this.referer,
+          'Origin': isApi ? `https://${baseDomain}` : 'https://youtu-chan.com',
           'Accept': '*/*',
-          'Accept-Language': 'en-US,en;q=0.9'
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Sec-Ch-Ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': isApi ? 'same-site' : 'cross-site'
         },
         rejectUnauthorized: false,
         secureOptions: 0x40000000,
         ciphers: 'ALL',
         minVersion: 'TLSv1'
       };
+      
+      const cStr = this.getCookieStringForUrl(url);
+      if (cStr) {
+        options.headers['Cookie'] = cStr;
+      }
       
       protocol.get(url, options, (res) => {
         // Follow redirects
@@ -156,7 +206,9 @@ class AllAnimeAPI {
       const episodesDetail = response.data?.show?.availableEpisodesDetail || {};
       const episodes = episodesDetail[config.mode] || [];
 
-      return episodes.sort((a, b) => parseFloat(a) - parseFloat(b));
+      return episodes
+        .filter(ep => parseFloat(ep) !== 0)
+        .sort((a, b) => parseFloat(a) - parseFloat(b));
     } catch (error) {
       helpers.die(`Failed to get episodes: ${error.message}`);
     }
@@ -171,7 +223,8 @@ class AllAnimeAPI {
     const variables = {
       showId,
       translationType: config.mode,
-      episodeString
+      episodeString,
+      countryOrigin: 'ALL'
     };
 
     try {
@@ -183,20 +236,29 @@ class AllAnimeAPI {
 
       const api_url = `${this.apiUrl}?variables=${encoded_vars}&extensions=${encoded_ext}`;
       
-      // SECURITY: Use native https GET instead of shell-based curl (VULN-02)
-      let stdout = await this.execGet(api_url);
-      let response = JSON.parse(stdout);
-      
       let sourceUrls = [];
-      if (response.data && response.data.tobeparsed) {
-         const decrypted = this.decryptTobeparsed(response.data.tobeparsed);
-         sourceUrls = decrypted.episode?.sourceUrls || [];
-      } else if (response.data && response.data.episode) {
-         sourceUrls = response.data.episode.sourceUrls || [];
-      } else {
-         response = await this.executeGraphql(episodeEmbedGql, variables);
-         console.log("\\nDEBUG: RAW EMBED RESPONSE ->", JSON.stringify(response, null, 2));
-         sourceUrls = response.data?.episode?.sourceUrls || [];
+      try {
+        let stdout = await this.execGet(api_url);
+        let response = JSON.parse(stdout);
+        if (response.data && response.data.tobeparsed) {
+           const decrypted = this.decryptTobeparsed(response.data.tobeparsed);
+           sourceUrls = decrypted.episode?.sourceUrls || [];
+        } else if (response.data && response.data.episode) {
+           sourceUrls = response.data.episode.sourceUrls || [];
+        } else {
+           throw new Error("No data in GET");
+        }
+      } catch (e) {
+        console.error("[getEpisodeEmbedUrls] execGet failed:", e.message);
+        let response = await this.executeGraphql(episodeEmbedGql, variables, query_ext);
+        console.log("[getEpisodeEmbedUrls] executeGraphql response:", JSON.stringify(response).substring(0, 150) + "...");
+        
+        if (response.data && response.data.tobeparsed) {
+           const decrypted = this.decryptTobeparsed(response.data.tobeparsed);
+           sourceUrls = decrypted.episode?.sourceUrls || [];
+        } else {
+           sourceUrls = response.data?.episode?.sourceUrls || [];
+        }
       }
 
       // Parse source URLs
@@ -204,7 +266,6 @@ class AllAnimeAPI {
       sourceUrls.forEach(source => {
         const sourceUrl = source.sourceUrl?.replace(/^--/, '');
         const sourceName = source.sourceName;
-        // Keep all sources instead of just yt-mp4
         if (sourceUrl && sourceName) {
           sources[sourceName] = sourceUrl;
         }
@@ -215,6 +276,7 @@ class AllAnimeAPI {
         fallback: `https://allmanga.to/anime/${showId}/episodes/${config.mode}/${episodeString}` 
       };
     } catch (error) {
+      console.error("[getEpisodeEmbedUrls] CRITICAL ERROR:", error.stack || error.message);
       return { 
         sources: {}, 
         fallback: `https://allmanga.to/anime/${showId}/episodes/${config.mode}/${episodeString}` 
@@ -244,7 +306,13 @@ class AllAnimeAPI {
         console.log(`[SCRAPER] Mp4Upload provider detected, scraping embed...`);
         try {
           const embedUrl = providerId.startsWith('http') ? providerId : `https://${providerId}`;
-          const html = await this.execGet(embedUrl);
+          const res = await fetch(embedUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            }
+          });
+          const html = await res.text();
           const srcMatch = html.match(/src:\s*"([^"]*)"/);  // matches: src: "https://...mp4"
           if (srcMatch && srcMatch[1]) {
             let videoUrl = srcMatch[1];
@@ -256,6 +324,33 @@ class AllAnimeAPI {
           console.error(`[SCRAPER] Mp4Upload scrape failed: ${e.message}`);
         }
         return [];
+      }
+
+      // FileMoon / Fm-Hls unpacker: extract the direct .m3u8 from the eval script
+      if (providerName.includes('Fm-Hls') || providerId.includes('bysekoze') || providerId.includes('filemoon')) {
+        console.log(`[SCRAPER] FileMoon provider detected, unpacking eval script...`);
+        try {
+          const embedUrl = providerId.startsWith('http') ? providerId : `https://${providerId}`;
+          const res = await fetch(embedUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0.0.0 Safari/537.36' }
+          });
+          const html = await res.text();
+          const match = html.match(/eval\(function\(p,a,c,k,e,d\).*?\.split\('\|'\)\)\)/);
+          if (match) {
+            let script = match[0].replace(/^eval/, 'var unpacked = ');
+            const vm = require('vm');
+            const sandbox = {};
+            vm.createContext(sandbox);
+            vm.runInContext(script, sandbox);
+            const m3u8Match = sandbox.unpacked.match(/file:"([^"]+\.m3u8[^"]*)"/);
+            if (m3u8Match) {
+              return [{ quality: '1080p', url: m3u8Match[1], provider: providerName }];
+            }
+          }
+        } catch (e) {
+          console.error(`[SCRAPER] Fm-Hls unpack failed: ${e.message}`);
+        }
+        // Fallthrough if it fails
       }
 
       // 2. fast4speed.rsvp (Yt-mp4 replacement): direct mp4 link, use as-is
@@ -285,10 +380,27 @@ class AllAnimeAPI {
       const url = providerId.startsWith('http') ? providerId : 
                  (providerId.startsWith('/') ? `${baseUrl}${providerId}` : `${baseUrl}/${providerId}`);
       console.log(`[SCRAPER] Fetching API provider URL -> ${url.substring(0, 100)}...`);
-      const data = await this.execGet(url);
+      let data = '';
+      try {
+        const baseDomain = config.allanimeBase || 'allanime.day';
+        const cStr = this.getCookieStringForUrl(url);
+        const res = await fetch(url, {
+          headers: {
+            'User-Agent': this.userAgent,
+            'Cookie': cStr,
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': `https://${baseDomain}/`
+          }
+        });
+        data = await res.text();
+      } catch (e) {
+        console.error(`[SCRAPER] apivtwo fetch failed: ${e.message}`);
+      }
       const links = [];
 
-      if (typeof data === 'string') {
+      if (typeof data === 'string' && data.length > 0) {
+        console.log(`[SCRAPER] apivtwo data preview for ${providerName}:`, data.substring(0, 500));
         // Extract direct mp4 links with resolution info
         const linkMatches = data.matchAll(/"link":"([^"]*)".*?"resolutionStr":"([^"]*)"/g);
         for (const match of linkMatches) {
