@@ -64,14 +64,22 @@ if (process.env.NODE_ENV !== 'development' && fs.existsSync(join(patchUiPath, 'i
   console.log('\x1b[35m[Hot-Patch]\x1b[0m Serving patched UI from:', patchUiPath);
   app.use(express.static(patchUiPath));
   // SPA fallback
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/')) res.sendFile(join(patchUiPath, 'index.html'));
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/')) {
+      res.sendFile(join(patchUiPath, 'index.html'));
+    } else {
+      next();
+    }
   });
 } else {
   app.use(express.static(defaultUiPath));
   // SPA fallback
-  app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/')) res.sendFile(join(defaultUiPath, 'index.html'));
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/')) {
+      res.sendFile(join(defaultUiPath, 'index.html'));
+    } else {
+      next();
+    }
   });
 }
 
